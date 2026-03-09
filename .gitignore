@@ -23,3 +23,9 @@ bin/
 # OS
 .DS_Store
 Thumbs.db
+
+# 기획 문서
+PM기획서.pdf
+"[ESTAID]해커톤 주제 설명자료_250306(공유) (1).pdf"
+*.pdf
+BACKEND_PLAN.md
