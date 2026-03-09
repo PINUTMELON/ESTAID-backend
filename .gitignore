@@ -1,3 +1,25 @@
+# Build
 target/
 *.class
+*.jar
+*.war
+
+# STS / Eclipse IDE
+.metadata/
+.settings/
+.classpath
+.project
+.factorypath
+bin/
+*.launch
+
+# 환경 변수
 .env
+*.env
+
+# 로그
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
