@@ -1,179 +1,211 @@
-# ESTAID — AI 기반 2차 창작 컨텐츠 생성 플랫폼
+# ESTAID Backend
 
-> **AI Design Company ESTAID** | 2026.03
+> AI 기반 2차 창작 컨텐츠 생성 플랫폼 **ESTAID**의 백엔드 서버
 
----
-
-## 프로젝트 소개
-
-**ESTAID**는 K-pop, 애니, 게임, 버튜버 등 2차 창작 컨텐츠를 누구나 쉽게 만들 수 있도록 돕는 AI 기반 플랫폼입니다.
-
-복잡한 프롬프트 지식 없이도 아이디어 하나만으로 **플롯 기획 → 이미지 생성 → 영상 제작**까지 하나의 플로우로 완성할 수 있습니다.
+2차 창작 생산자가 복잡한 프롬프팅 없이 **플롯 기획 → 이미지 생성 → 영상 생성** 전 과정을 하나의 플랫폼에서 완성할 수 있도록 지원합니다.
 
 ---
 
-## 해결하는 문제
+## 목차
 
-| 대상 | 문제 |
-|---|---|
-| **입문자** | 플롯 기획 개념 없음 (구도 / 조명 / 캐릭터 / 분위기 등) |
-| **입문자** | 시작 프레임과 종료 프레임 개념을 몰라 영상 제작 불가 |
-| **경험자** | 기획 / 이미지 제작 / 영상 제작 도구를 동시에 써야 하는 번거로움 |
-| **경험자** | 결과물이 뽑기 수준 — 반복 작업을 줄이고 싶음 |
+- [프로젝트 개요](#프로젝트-개요)
+- [기술 스택](#기술-스택)
+- [주요 기능](#주요-기능)
+- [프로젝트 구조](#프로젝트-구조)
+- [DB 스키마](#db-스키마)
+- [환경 설정](#환경-설정)
+- [실행 방법](#실행-방법)
+- [개발 계획](#개발-계획)
+- [브랜치 전략](#브랜치-전략)
 
 ---
 
-## 핵심 기능
+## 프로젝트 개요
 
-### 필수 기능
+| 항목 | 내용 |
+|------|------|
+| 프로젝트명 | ESTAID |
+| 분류 | AI Design Company |
+| 개발 기간 | 2026.03 (해커톤) |
+| 서버 포트 | 8080 |
 
-#### 1. AI 플롯 기획 `idea → text`
-- 짧은 키워드나 문장을 입력하면 AI가 5~10개 씬으로 구성된 플롯을 자동 생성
-- 각 씬별로 **등장인물 / 구도 / 배경 / 조명 / 분위기 / 카메라 움직임 / 주요 스토리** 포함
-- 생성된 표를 수정하여 원하는 방향으로 커스터마이징 가능
+### 해결하는 문제
 
-```
-예시 입력: "주인공이 괴물과 싸우는 장면" / 5씬
+**입문자**
+- 플롯 기획 개념 없음 (구도 / 조명 / 캐릭터 / 분위기 등)
+- 시작 프레임과 종료 프레임 개념 없음
 
-→ Scene 1: 괴물의 등장  — 와이드 샷, 폐허가 된 고대 도시, 어두운 하늘과 번개
-→ Scene 2: 첫 공격      — 미디엄 액션 샷, 번개와 불꽃이 번쩍이는 조명
-→ Scene 3: 격렬한 전투  — 빠른 액션 클로즈샷, 불꽃과 먼지 속 강한 대비
-→ Scene 4: 위기의 순간  — 로우 앵글, 붉은 빛과 먼지로 어두운 분위기
-→ Scene 5: 최종 반격    — 영웅적 클로즈업 → 와이드 샷, 새벽빛
-```
-
-#### 2. AI 이미지 생성 `text → image`
-- 플롯 표를 기반으로 각 씬의 **첫 프레임 / 마지막 프레임** 이미지를 자동 생성
-- 캐릭터 레퍼런스 이미지를 등록하면 컷씬 간 **외형 및 화풍 일관성** 유지
-- 복잡한 프롬프트 없이 원클릭으로 고품질 이미지 생성
-
-#### 3. AI 영상 생성 `image → video`
-- 각 씬의 첫 프레임과 마지막 프레임을 연결하여 **3~5초 씬별 영상** 제작
-- 카메라 움직임이 반영된 자연스러운 영상 생성
-- 씬 영상들을 연결하여 하나의 mp4 / gif로 출력
-
-### 가산 기능
-
-#### 4. 영상 병합 및 편집
-- 씬별 영상을 매끄럽게 병합하여 **15~30초 최종 영상** 제작
-- 유튜브, 틱톡 등 숏폼 플랫폼에 최적화된 편집 기능
+**경험자**
+- 기획 / 이미지 제작 / 영상 제작 도구를 동시에 사용해야 하는 불편함
+- 반복적인 결과물 뽑기 작업
 
 ---
 
 ## 기술 스택
 
-| 영역 | 기술 |
-|---|---|
-| **Frontend** | Next.js 14, TypeScript, Tailwind CSS |
-| **Backend** | Spring Boot 3.2, Java 17, Spring Data JPA |
-| **AI (플롯 생성)** | Claude API (Anthropic) |
-| **Database** | H2 (개발) / MySQL (운영) |
-| **CI/CD** | GitHub Actions + Gemini AI 자동 코드리뷰 |
+| 분류 | 기술 |
+|------|------|
+| Language | Java 17 |
+| Framework | Spring Boot 3.2.3 |
+| Build Tool | Maven |
+| Database | PostgreSQL (Supabase) |
+| ORM | Spring Data JPA / Hibernate 6 |
+| AI | Claude API (claude-opus-4-6) |
+| HTTP Client | WebClient (Spring WebFlux) |
+| Security | Spring Security |
+| Validation | Spring Validation |
+| Util | Lombok |
+
+---
+
+## 주요 기능
+
+### 필수 기능
+
+#### 1. AI 플롯 기획 `idea → text`
+- 사용자가 입력한 짧은 키워드나 문장을 분석
+- **5~10개** 컷으로 구성된 플롯 자동 생성
+- 각 컷별로 등장인물 / 구도 / 배경 / 조명 / 주요 스토리 포함
+
+#### 2. AI 이미지 생성 `text → image`
+- 생성된 플롯 기반 컷씬별 이미지 생성
+- 컷씬 간 캐릭터 외형 및 화풍(Art Style) **일관성 유지**
+- 복잡한 프롬프트 없이 원클릭으로 고품질 이미지 생성
+
+#### 3. AI 영상 생성 `image → video`
+- Start 프레임 / End 프레임 기반 **3~5초** 컷별 영상 생성
+- 각 컷을 연결하여 mp4 영상으로 생성
+
+### 가산 기능 (택 1)
+
+#### 4. 영상 병합 및 편집
+- 짧은 영상들을 매끄럽게 병합
+- 유튜브 / 틱톡 숏폼에 적합한 **15~30초** 최종 영상 제작
+
+#### 5. 창작자 보상 체계
+- 서비스 고유의 반응 지표 구현
+- 실시간 / 주간 인기 창작자 랭킹 보드
+- 활동 성과 기반 뱃지 / 등급 부여
 
 ---
 
 ## 프로젝트 구조
 
 ```
-ESTAID/
-├── backend/                  # Spring Boot 백엔드
-│   └── src/main/java/com/estaid/
-│       ├── common/
-│       │   ├── config/       # CORS, Security, Claude API 설정
-│       │   ├── exception/    # 전역 예외 처리
-│       │   └── response/     # 표준 응답 래퍼
-│       └── domain/
-│           ├── character/    # 캐릭터 등록 및 조회
-│           ├── plot/         # AI 플롯 생성
-│           ├── image/        # AI 이미지 생성
-│           └── video/        # AI 영상 생성 및 병합
-│
-└── frontend/                 # Next.js 프론트엔드
-    └── src/
-        ├── app/
-        │   ├── character/    # 캐릭터 등록 페이지
-        │   ├── plot/         # 플롯 기획 페이지
-        │   ├── image/        # 이미지 생성 페이지
-        │   └── video/        # 영상 생성 페이지
-        ├── lib/api.ts        # 백엔드 API 클라이언트
-        └── types/index.ts    # TypeScript 타입 정의
+src/main/java/com/estaid/
+├── EstaidApplication.java              # 앱 진입점
+└── common/                             # 공통 인프라
+    ├── config/
+    │   ├── ClaudeConfig.java           # Claude API 설정
+    │   ├── CorsConfig.java             # CORS 설정
+    │   └── SecurityConfig.java         # Spring Security 설정
+    ├── exception/
+    │   ├── BusinessException.java      # 비즈니스 예외
+    │   └── GlobalExceptionHandler.java # 전역 예외 핸들러
+    └── response/
+        └── ApiResponse.java            # 공통 응답 포맷
+
+src/main/resources/
+├── application.yml                     # 앱 설정 (환경변수 기반)
+└── db/
+    └── schema.sql                      # Supabase DDL
 ```
 
 ---
 
-## 로컬 실행 방법
+## DB 스키마
 
-### 백엔드
-
-```bash
-cd backend
-./mvnw spring-boot:run
+```
+characters   캐릭터 정보 (레퍼런스 이미지, 화풍)
+    │
+    └── plots        플롯 (AI 생성 씬 목록 JSON)
+            │
+            └── images   씬별 이미지 (FIRST / LAST 프레임)
+                    │
+                    └── videos   씬별 영상 / 병합 영상
 ```
 
-> 기본 포트: `http://localhost:8080`
-> 개발 환경은 H2 인메모리 DB 자동 사용 (`/h2-console` 접근 가능)
+> 스키마 전체 DDL: `src/main/resources/db/schema.sql`
+>
+> **Supabase 최초 실행 시** Dashboard → SQL Editor에서 실행 필요
 
-### 프론트엔드
+---
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## 환경 설정
 
-> 기본 포트: `http://localhost:3000`
+프로젝트 루트에 `.env` 파일 생성 후 아래 값 입력 (`.gitignore`에 등록되어 있어 커밋되지 않음)
 
-### 환경 변수 설정
-
-**백엔드** — `backend/src/main/resources/application.yml`
-```yaml
-claude:
-  api:
-    key: ${CLAUDE_API_KEY}   # Anthropic API 키 입력
-```
-
-**프론트엔드** — `frontend/.env.local`
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8080
+# Supabase DB 연결 정보
+# Supabase Dashboard > Settings > Database > Connection string 에서 확인
+SUPABASE_DB_URL=jdbc:postgresql://db.xxxxxxxxxxxx.supabase.co:5432/postgres
+SUPABASE_DB_USERNAME=postgres
+SUPABASE_DB_PASSWORD=your_password
+
+# Claude API 키
+# https://console.anthropic.com > API Keys 에서 발급
+CLAUDE_API_KEY=your_claude_api_key
+```
+
+> Spring Boot은 `.env` 파일을 기본적으로 읽지 않으므로 `spring-dotenv` 라이브러리가 자동으로 로드합니다.
+
+---
+
+## 실행 방법
+
+### 사전 조건
+- Java 17 이상
+- Maven
+- Supabase 프로젝트 생성 및 `schema.sql` 실행 완료
+- `.env` 파일 작성 완료
+
+### 1. Supabase 스키마 실행
+Supabase Dashboard → SQL Editor → `src/main/resources/db/schema.sql` 내용 붙여넣기 → Run
+
+### 2. 의존성 설치 및 실행
+```bash
+# STS / IntelliJ에서 실행하거나
+mvn spring-boot:run
+
+# 또는 빌드 후 실행
+mvn clean package
+java -jar target/estaid-backend-0.0.1-SNAPSHOT.jar
+```
+
+### 3. 정상 실행 확인
+```
+HikariPool-1 - Start completed.
+Started EstaidApplication in X.XXX seconds
 ```
 
 ---
 
-## API 엔드포인트
+## 개발 계획
 
-| Method | URL | 설명 |
-|---|---|---|
-| `POST` | `/api/characters` | 캐릭터 등록 |
-| `GET` | `/api/characters/{id}` | 캐릭터 조회 |
-| `POST` | `/api/plots` | AI 플롯 생성 |
-| `GET` | `/api/plots/{id}` | 플롯 조회 |
-| `POST` | `/api/images/generate` | 이미지 생성 요청 |
-| `GET` | `/api/images/plot/{plotId}` | 플롯 내 이미지 전체 조회 |
-| `POST` | `/api/videos/generate` | 영상 생성 요청 |
-| `POST` | `/api/videos/merge` | 영상 병합 |
-| `GET` | `/api/videos/plot/{plotId}` | 플롯 내 영상 전체 조회 |
+### Phase 1 - 기반 세팅 ✅
+- [x] Spring Boot 3.2 프로젝트 세팅
+- [x] Supabase(PostgreSQL) 연동
+- [x] `schema.sql` DDL 작성
+- [x] 공통 인프라 구성 (예외처리, 응답포맷, CORS, Security)
+- [x] `.env` 기반 환경변수 관리
+
+### Phase 2 - 핵심 도메인 개발 🔄
+- [ ] Character API (캐릭터 등록 / 조회)
+- [ ] Plot API (아이디어 입력 → Claude API → 플롯 생성)
+- [ ] Image API (플롯 기반 이미지 생성 요청 / 상태 관리)
+- [ ] Video API (이미지 기반 영상 생성 요청 / 상태 관리)
+
+### Phase 3 - 가산 기능 개발
+- [ ] 영상 병합 API (씬 영상 → 최종 영상)
+- [ ] 창작자 보상 체계 (랭킹, 뱃지)
 
 ---
 
 ## 브랜치 전략
 
-| 브랜치 | 용도 |
-|---|---|
-| `main` | 배포용 최신 코드 |
-| `master` | 프로젝트 초기 세팅 기준 |
-| `Backend` | 백엔드 개발 |
-| `Be-development` | 백엔드 기능 개발 |
-| `frontend` | 프론트엔드 개발 |
-| `fe-development` | 프론트엔드 기능 개발 |
-
----
-
-## GitHub Actions
-
-PR 생성, 이슈 등록, main 브랜치 push 시 **Gemini AI가 자동으로** 코드리뷰 및 분석을 수행합니다.
-
-활성화하려면 GitHub 레포 **Settings → Secrets → Actions**에 아래 키를 등록하세요.
-
-```
-GEMINI_API_KEY=your-google-ai-studio-key
-```
+| 브랜치 | 역할 |
+|--------|------|
+| `master` | 배포 브랜치 |
+| `Development` | 통합 개발 브랜치 |
+| `Dev_CCL` | 조창래 개발 브랜치 |
+| `Dev_KYM` | 김영민 개발 브랜치 |
