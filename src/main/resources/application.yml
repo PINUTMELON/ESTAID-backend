@@ -21,6 +21,9 @@ server:
 app:
   cors:
     allowed-origins: http://localhost:3000
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:admin1234}
 
 # Claude API 설정
 claude:
