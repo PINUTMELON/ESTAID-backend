@@ -30,3 +30,6 @@ PM기획서.pdf
 "[ESTAID]해커톤 주제 설명자료_250306(공유) (1).pdf"
 *.pdf
 BACKEND_PLAN.md
+
+# Local DB schema
+src/main/resources/db/schema.sql
