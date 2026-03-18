@@ -25,7 +25,8 @@ import java.util.Map;
  *
  * <p>Anthropic Claude API를 호출하여 다음 기능을 제공한다:</p>
  * <ul>
- *   <li>{@link #generateScenes} - 플롯 아이디어 → N개의 씬 JSON 자동 생성</li>
+ *   <li>{@link #generateScenes}      - 플롯 아이디어 → N개의 씬 JSON 자동 생성</li>
+ *   <li>{@link #generateVideoPrompt} - 씬 정보 → 영상 생성 프롬프트 자동 생성</li>
  * </ul>
  *
  * <p>호출 방식: 동기({@code .block()}), 타임아웃 60초</p>
@@ -121,6 +122,69 @@ public class ClaudeService {
         return scenes;
     }
 
+    /**
+     * 씬 정보를 기반으로 Claude API를 호출하여 영상 생성 프롬프트를 생성한다.
+     *
+     * <p>호출 흐름:</p>
+     * <pre>
+     *   1. 씬 정보 + 아트스타일로 프롬프트 요청 구성
+     *   2. Claude API POST /v1/messages 동기 호출
+     *   3. 응답 텍스트를 그대로 반환 (JSON 아님, 자연어 프롬프트)
+     * </pre>
+     *
+     * @param scene    씬 정보 DTO (sceneNumber, characters, composition, background, lighting, mainStory)
+     * @param artStyle 화풍 설정 (예: anime, realistic)
+     * @return Claude가 생성한 영상 프롬프트 문자열
+     * @throws BusinessException Claude API 호출 실패 시
+     */
+    public String generateVideoPrompt(SceneDto scene, String artStyle) {
+        log.info("Claude 영상 프롬프트 생성 요청: sceneNumber={}, artStyle={}", scene.getSceneNumber(), artStyle);
+
+        // 1. 프롬프트 구성
+        String userPrompt = buildVideoPromptRequest(scene, artStyle);
+
+        // 2. Claude API 요청 바디 구성
+        Map<String, Object> requestBody = Map.of(
+                "model", model,
+                "max_tokens", 512,
+                "system", VIDEO_PROMPT_SYSTEM,
+                "messages", List.of(Map.of("role", "user", "content", userPrompt))
+        );
+
+        // 3. Claude API 동기 호출
+        String responseJson;
+        try {
+            responseJson = claudeWebClient.post()
+                    .uri("/v1/messages")
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .onStatus(status -> status.isError(),
+                            response -> response.bodyToMono(String.class)
+                                    .flatMap(body -> Mono.error(
+                                            new BusinessException("Claude API 오류: " + body, HttpStatus.BAD_GATEWAY))))
+                    .bodyToMono(String.class)
+                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                    .block();
+        } catch (WebClientResponseException e) {
+            log.error("Claude API HTTP 오류: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
+        } catch (Exception e) {
+            log.error("Claude API 호출 실패: {}", e.getMessage());
+            throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
+        }
+
+        // 4. content[0].text 추출
+        try {
+            JsonNode root = objectMapper.readTree(responseJson);
+            String prompt = root.path("content").get(0).path("text").asText().trim();
+            log.info("Claude 영상 프롬프트 생성 완료: sceneNumber={}", scene.getSceneNumber());
+            return prompt;
+        } catch (Exception e) {
+            log.error("Claude 영상 프롬프트 응답 파싱 실패: {}", e.getMessage());
+            throw new BusinessException("Claude 영상 프롬프트 응답 파싱에 실패했습니다.");
+        }
+    }
+
     // ─────────────────────────────────────────
     // private 헬퍼
     // ─────────────────────────────────────────
@@ -204,6 +268,37 @@ public class ClaudeService {
             "사용자의 아이디어를 받아 지정된 수의 씬으로 구성된 플롯을 JSON 형식으로 생성하세요.\n" +
             "각 씬은 영상 제작에 필요한 구체적인 정보를 포함해야 합니다.\n" +
             "반드시 JSON 배열만 반환하고, 다른 텍스트나 설명은 절대 포함하지 마세요.";
+
+    /**
+     * 영상 프롬프트 생성용 사용자 프롬프트를 구성한다.
+     * 씬의 모든 시각적 정보를 포함하여 일관된 영상 프롬프트를 생성한다.
+     */
+    private String buildVideoPromptRequest(SceneDto scene, String artStyle) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("씬 번호: ").append(scene.getSceneNumber()).append("\n");
+        if (scene.getTitle() != null && !scene.getTitle().isBlank()) {
+            sb.append("씬 제목: ").append(scene.getTitle()).append("\n");
+        }
+        sb.append("등장인물: ").append(scene.getCharacters()).append("\n");
+        sb.append("카메라 구도: ").append(scene.getComposition()).append("\n");
+        sb.append("배경: ").append(scene.getBackground()).append("\n");
+        sb.append("조명/분위기: ").append(scene.getLighting()).append("\n");
+        sb.append("주요 스토리: ").append(scene.getMainStory()).append("\n");
+        sb.append("첫 프레임 묘사: ").append(scene.getFirstFramePrompt()).append("\n");
+        sb.append("마지막 프레임 묘사: ").append(scene.getLastFramePrompt()).append("\n");
+        if (artStyle != null && !artStyle.isBlank()) {
+            sb.append("화풍: ").append(artStyle).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /** 영상 프롬프트 생성 시스템 프롬프트 */
+    private static final String VIDEO_PROMPT_SYSTEM =
+            "당신은 AI 영상 생성 전문가입니다.\n" +
+            "씬 정보를 받아 FAL.ai Wan 2.1 모델에 최적화된 영상 생성 프롬프트를 영어로 작성하세요.\n" +
+            "프롬프트는 시각적 동작, 카메라 움직임, 분위기를 구체적으로 묘사해야 합니다.\n" +
+            "반드시 영어로만 작성하고, 설명이나 부연 없이 프롬프트 텍스트만 반환하세요.\n" +
+            "길이는 2~3문장으로 작성하세요.";
 
     /** 씬 JSON 형식 예시 (Claude에게 출력 포맷 안내) */
     private static final String SCENE_JSON_FORMAT =
