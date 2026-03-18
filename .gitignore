@@ -48,3 +48,4 @@ Q&A.md
 *.ico
 *.bmp
 *.tiff
+.claude/settings.local.json
