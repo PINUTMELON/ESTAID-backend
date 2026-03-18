@@ -32,3 +32,12 @@ claude:
     base-url: https://api.anthropic.com
     model: claude-opus-4-6
     version: 2023-06-01
+
+# FAL.ai API 설정
+# - image-url: FLUX Kontext [pro] - 씬 이미지 생성 (동기)
+# - video-url: Wan 2.1 FLF2V - 씬 영상 생성 (비동기 큐)
+fal:
+  api:
+    key: ${FAL_KEY}
+    image-url: https://fal.run/fal-ai/flux-pro/kontext
+    video-url: https://queue.fal.run/fal-ai/wan-flf2v
