@@ -14,6 +14,14 @@ import java.util.List;
 public interface PlotRepository extends JpaRepository<Plot, String> {
 
     /**
+     * 특정 프로젝트에 속한 플롯 목록을 조회한다.
+     *
+     * @param projectId 프로젝트 고유 식별자
+     * @return 해당 프로젝트의 플롯 목록
+     */
+    List<Plot> findByProject_ProjectId(String projectId);
+
+    /**
      * 특정 캐릭터에 연결된 플롯 목록을 조회한다.
      *
      * @param characterId 캐릭터 고유 식별자
