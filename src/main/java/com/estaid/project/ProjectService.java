@@ -36,7 +36,6 @@ public class ProjectService {
                 .title(request.getTitle())
                 .userId(userId)
                 .backgroundImageUrl(request.getBackgroundImageUrl())
-                .settingsJson(request.getSettingsJson())
                 .build();
 
         Project saved = projectRepository.save(project);
@@ -51,7 +50,6 @@ public class ProjectService {
 
         project.setTitle(request.getTitle());
         project.setBackgroundImageUrl(request.getBackgroundImageUrl());
-        project.setSettingsJson(request.getSettingsJson());
 
         log.info("프로젝트 수정 완료: projectId={}, userId={}", projectId, userId);
         return ProjectResponse.from(project);
