@@ -24,6 +24,9 @@ app:
   admin:
     username: ${ADMIN_USERNAME:admin}
     password: ${ADMIN_PASSWORD:admin1234}
+  jwt:
+    secret: ${JWT_SECRET:estaid-demo-jwt-secret-key-change-me-please-2026}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
 # Claude API 설정
 claude:

@@ -40,6 +40,9 @@ public class Project {
     @Column(name = "title", length = 200, nullable = false)
     private String title;
 
+    @Column(name = "user_id", length = 36)
+    private String userId;
+
     /**
      * 프로젝트 배경 이미지 URL
      * 사용자가 업로드한 배경 이미지로, 이미지 생성 시 배경으로 활용된다.
