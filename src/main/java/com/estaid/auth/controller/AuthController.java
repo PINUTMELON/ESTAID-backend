@@ -4,8 +4,6 @@ import com.estaid.auth.dto.AuthUserResponse;
 import com.estaid.auth.dto.LoginRequest;
 import com.estaid.auth.service.AuthService;
 import com.estaid.common.response.ApiResponse;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,18 +19,13 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/login")
-    public ApiResponse<AuthUserResponse> login(@Valid @RequestBody LoginRequest request,
-            HttpServletRequest httpServletRequest) {
-        HttpSession session = httpServletRequest.getSession(true);
-        return ApiResponse.ok("로그인 성공", authService.login(request, session));
+    public ApiResponse<AuthUserResponse> login(@Valid @RequestBody LoginRequest request) {
+        return ApiResponse.ok("로그인 성공", authService.login(request));
     }
 
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(HttpServletRequest httpServletRequest) {
-        HttpSession session = httpServletRequest.getSession(false);
-        if (session != null) {
-            authService.logout(session);
-        }
+    public ApiResponse<Void> logout() {
+        authService.logout();
         return ApiResponse.ok("로그아웃 성공", null);
     }
 }

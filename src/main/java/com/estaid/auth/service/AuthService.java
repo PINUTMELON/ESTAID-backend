@@ -3,30 +3,29 @@ package com.estaid.auth.service;
 import com.estaid.auth.dto.AuthUserResponse;
 import com.estaid.auth.dto.LoginRequest;
 import com.estaid.common.exception.BusinessException;
-import jakarta.servlet.http.HttpSession;
+import com.estaid.user.User;
+import com.estaid.user.UserRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class AuthService {
 
-    public static final String SESSION_ADMIN_USERNAME = "LOGIN_ADMIN_USERNAME";
-
     private final PasswordEncoder passwordEncoder;
-    private final String adminUsername;
-    private final String adminPassword;
+    private final JwtTokenService jwtTokenService;
+    private final UserRepository userRepository;
 
-    public AuthService(PasswordEncoder passwordEncoder,
-            @Value("${app.admin.username:admin}") String adminUsername,
-            @Value("${app.admin.password:admin1234}") String adminPassword) {
-        this.passwordEncoder = passwordEncoder;
-        this.adminUsername = adminUsername;
-        this.adminPassword = adminPassword;
-    }
+    @Value("${app.admin.username:admin}")
+    private String adminUsername;
 
-    public AuthUserResponse login(LoginRequest request, HttpSession session) {
+    @Value("${app.admin.password:admin1234}")
+    private String adminPassword;
+
+    public AuthUserResponse login(LoginRequest request) {
         if (!adminUsername.equals(request.username())) {
             throw new BusinessException("관리자 계정 정보가 올바르지 않습니다.", HttpStatus.UNAUTHORIZED);
         }
@@ -36,11 +35,16 @@ public class AuthService {
             throw new BusinessException("관리자 계정 정보가 올바르지 않습니다.", HttpStatus.UNAUTHORIZED);
         }
 
-        session.setAttribute(SESSION_ADMIN_USERNAME, adminUsername);
-        return new AuthUserResponse(adminUsername);
+        User adminUser = userRepository.findByUsername(adminUsername)
+                .orElseThrow(() -> new BusinessException(
+                        "로그인할 관리자 사용자 정보가 users 테이블에 없습니다.",
+                        HttpStatus.UNAUTHORIZED));
+
+        String accessToken = jwtTokenService.generateToken(adminUser.getUserId(), adminUser.getUsername());
+        return new AuthUserResponse(adminUser.getUserId(), adminUser.getUsername(), accessToken, "Bearer");
     }
 
-    public void logout(HttpSession session) {
-        session.invalidate();
+    public void logout() {
+        // Stateless JWT logout is handled client-side by discarding the token.
     }
 }
