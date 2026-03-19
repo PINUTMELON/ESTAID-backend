@@ -5,8 +5,10 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
-/** 이미지 엔티티 저장소. */
+/** 이미지 엔티티 저장소 (조회 전용). */
+@Repository("contentImageRepository")
 public interface ImageRepository extends JpaRepository<ImageEntity, String> {
 
     /** 씬 이미지 목록을 프레임 타입 순으로 조회한다. */
