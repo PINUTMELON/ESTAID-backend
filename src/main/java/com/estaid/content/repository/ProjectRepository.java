@@ -4,8 +4,10 @@ import com.estaid.content.entity.ProjectEntity;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
-/** projects read repository. */
+/** 프로젝트 엔티티 저장소 (조회 전용). */
+@Repository("contentProjectRepository")
 public interface ProjectRepository extends JpaRepository<ProjectEntity, String> {
     List<ProjectEntity> findByUserIdOrderByCreatedAtDesc(String userId);
 
