@@ -414,6 +414,25 @@ public class FalAiService {
     }
 
     // ─────────────────────────────────────────
+    // 이미지 즉시 생성 (동기, DB 저장 없음)
+    // ─────────────────────────────────────────
+
+    /**
+     * FAL.ai 이미지를 동기로 생성하고 URL을 즉시 반환한다.
+     *
+     * <p>캐릭터·배경 임시 생성에 사용된다. DB에 저장하지 않으며,
+     * 프론트에서 결과를 확인 후 "프로젝트에 사용하기"를 누를 때 별도로 저장한다.</p>
+     *
+     * @param referenceImageUrl 레퍼런스 이미지 URL (null 허용)
+     * @param prompt            이미지 생성 프롬프트
+     * @return 생성된 이미지 URL
+     * @throws RuntimeException FAL.ai API 호출 실패 시
+     */
+    public String generateImageSync(String referenceImageUrl, String prompt) {
+        return callImageApi(referenceImageUrl, prompt);
+    }
+
+    // ─────────────────────────────────────────
     // DB 상태 갱신 헬퍼
     // ─────────────────────────────────────────
 
