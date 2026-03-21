@@ -2,5 +2,6 @@
     "java.compile.nullAnalysis.mode": "automatic",
     "files.exclude": {
         "**/.claude": true
-    }
+    },
+    "java.configuration.updateBuildConfiguration": "interactive"
 }
