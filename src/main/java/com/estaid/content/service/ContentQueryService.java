@@ -23,7 +23,7 @@ import com.estaid.content.entity.ProjectEntity;
 import com.estaid.content.entity.VideoEntity;
 import com.estaid.content.repository.BackgroundRepository;
 import com.estaid.content.repository.CharacterRepository;
-import com.estaid.content.repository.ImageRepository;
+import com.estaid.content.repository.ImageRepository;   
 import com.estaid.content.repository.PlotRepository;
 import com.estaid.content.repository.ProjectRepository;
 import com.estaid.content.repository.VideoRepository;
