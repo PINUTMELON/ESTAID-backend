@@ -22,6 +22,12 @@ public class ProjectEntity {
     @Column(name = "title", nullable = false)
     private String title;
 
+    @Column(name = "user_id", length = 36)
+    private String userId;
+
+    @Column(name = "background_image_url")
+    private String backgroundImageUrl;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 

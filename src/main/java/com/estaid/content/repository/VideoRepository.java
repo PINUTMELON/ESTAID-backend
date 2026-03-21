@@ -6,8 +6,10 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
-/** 영상 엔티티 저장소. */
+/** 영상 엔티티 저장소 (조회 전용). */
+@Repository("contentVideoRepository")
 public interface VideoRepository extends JpaRepository<VideoEntity, String> {
 
     /** 씬의 최신 영상 한 건을 조회한다. */

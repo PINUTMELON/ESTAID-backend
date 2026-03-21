@@ -24,6 +24,9 @@ app:
   admin:
     username: ${ADMIN_USERNAME:admin}
     password: ${ADMIN_PASSWORD:admin1234}
+  jwt:
+    secret: ${JWT_SECRET:estaid-demo-jwt-secret-key-change-me-please-2026}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
 # Claude API 설정
 claude:
@@ -32,3 +35,19 @@ claude:
     base-url: https://api.anthropic.com
     model: claude-opus-4-6
     version: 2023-06-01
+
+# Supabase Storage 설정
+supabase:
+  url: ${SUPABASE_URL}
+  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
+  storage:
+    bucket: images
+
+# FAL.ai API 설정
+# - image-url: FLUX Kontext [pro] - 씬 이미지 생성 (동기)
+# - video-url: Wan 2.1 FLF2V - 씬 영상 생성 (비동기 큐)
+fal:
+  api:
+    key: ${FAL_KEY}
+    image-url: https://fal.run/fal-ai/flux-pro/kontext
+    video-url: https://queue.fal.run/fal-ai/wan-flf2v

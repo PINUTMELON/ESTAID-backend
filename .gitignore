@@ -31,5 +31,21 @@ PM기획서.pdf
 *.pdf
 BACKEND_PLAN.md
 
-# Local DB schema
+# DB 스키마 (로컬 전용)
 src/main/resources/db/schema.sql
+
+# 로컬 전용 문서 (머지 제외)
+DEV_PLAN.md
+Q&A.md
+
+# 이미지 파일
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.bmp
+*.tiff
+.claude/settings.local.json

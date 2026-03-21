@@ -1,8 +1,9 @@
 package com.estaid.common.config;
 
+import com.estaid.auth.filter.JwtAuthenticationFilter;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -10,37 +11,51 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
  * Spring Security 설정
- * - 현재는 개발 편의를 위해 모든 요청을 허용한다.
- * - 해커톤용 세션 로그인 구현을 위해 세션은 필요 시 생성한다.
+ *
+ * <p>인증 방식: Stateless JWT</p>
+ *
+ * <p>허용 경로 (인증 없이 접근 가능):</p>
+ * <ul>
+ *   <li>POST /auth/login  - 로그인 (토큰 발급)</li>
+ *   <li>POST /auth/logout - 로그아웃 (Stateless이므로 클라이언트가 토큰 폐기)</li>
+ *   <li>GET  /api/content/** - 공개 조회 API (갤러리 등)</li>
+ * </ul>
+ *
+ * <p>인증 필요 경로:</p>
+ * <ul>
+ *   <li>/api/projects/**, /api/characters/**, /api/plots/**</li>
+ *   <li>/api/images/**, /api/videos/** - 이미지·영상 생성 API</li>
+ * </ul>
  */
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
             org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource) throws Exception {
         http
-            // CSRF 비활성화 (REST API이므로 불필요)
             .csrf(AbstractHttpConfigurer::disable)
-
-            // CORS 설정 적용
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
-
-            // 기본 로그인 폼/HTTP Basic 비활성화
             .formLogin(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
-
-            // 세션은 로그인 시에만 생성
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-
-            // 모든 요청 허용 (개발 단계)
-            // TODO: 인증이 필요한 엔드포인트는 여기서 제한할 것
-            .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
-            .logout(Customizer.withDefaults());
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth
+                // 인증 없이 허용
+                .requestMatchers("/auth/login", "/auth/logout").permitAll()
+                .requestMatchers("/api/content/**").permitAll()  // 공개 조회 API
+                // 나머지 모든 API는 JWT 인증 필요
+                .anyRequest().authenticated()
+            )
+            // UsernamePasswordAuthenticationFilter 앞에 JWT 필터 삽입
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

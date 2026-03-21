@@ -1,147 +1,86 @@
--- =====================================================================
--- ESTAID Supabase Schema
--- DB: PostgreSQL (Supabase)
--- Description: Table definitions used by the ESTAID backend.
---
--- Table structure:
---   1. projects
---   2. backgrounds
---   3. characters
---   4. plots
---   5. images
---   6. videos
---
--- Run: Supabase Dashboard > SQL Editor > paste entire file > Run
--- =====================================================================
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- =====================================================================
--- 1. projects
--- =====================================================================
-CREATE TABLE IF NOT EXISTS projects (
-    project_id   VARCHAR(36) PRIMARY KEY,
-    title        VARCHAR(200) NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE public.backgrounds (
+  background_id character varying NOT NULL,
+  project_id character varying,
+  name character varying NOT NULL,
+  description text,
+  reference_image_url character varying,
+  art_style character varying,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT backgrounds_pkey PRIMARY KEY (background_id),
+  CONSTRAINT background_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(project_id)
 );
-
--- =====================================================================
--- 2. backgrounds
--- =====================================================================
-CREATE TABLE IF NOT EXISTS backgrounds (
-    background_id        VARCHAR(36) PRIMARY KEY,
-    project_id           VARCHAR(36),
-    name                 VARCHAR(100) NOT NULL,
-    description          TEXT,
-    reference_image_url  VARCHAR(500),
-    art_style            VARCHAR(50),
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT background_project_id_fkey
-        FOREIGN KEY (project_id) REFERENCES projects(project_id)
+CREATE TABLE public.characters (
+  character_id character varying NOT NULL,
+  project_id character varying,
+  name character varying NOT NULL,
+  description text,
+  reference_image_url character varying,
+  art_style character varying,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT characters_pkey PRIMARY KEY (character_id),
+  CONSTRAINT fk_characters_project FOREIGN KEY (project_id) REFERENCES public.projects(project_id)
 );
-
--- =====================================================================
--- 3. characters
--- =====================================================================
-CREATE TABLE IF NOT EXISTS characters (
-    character_id         VARCHAR(36) PRIMARY KEY,
-    project_id           VARCHAR(36),
-    name                 VARCHAR(100) NOT NULL,
-    description          TEXT,
-    reference_image_url  VARCHAR(500),
-    art_style            VARCHAR(50),
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT fk_characters_project
-        FOREIGN KEY (project_id) REFERENCES projects(project_id)
+CREATE TABLE public.images (
+  image_id character varying NOT NULL,
+  plot_id character varying NOT NULL,
+  scene_number integer NOT NULL,
+  frame_type character varying NOT NULL CHECK (frame_type::text = ANY (ARRAY['FIRST'::character varying, 'LAST'::character varying]::text[])),
+  prompt text,
+  image_url character varying,
+  status character varying NOT NULL DEFAULT 'PENDING'::character varying CHECK (status::text = ANY (ARRAY['PENDING'::character varying, 'PROCESSING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying]::text[])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT images_pkey PRIMARY KEY (image_id),
+  CONSTRAINT images_plot_id_fkey FOREIGN KEY (plot_id) REFERENCES public.plots(plot_id)
 );
-
--- ---------------------------------------------------------------------
--- updated_at trigger function
--- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_projects_updated_at ON projects;
-CREATE TRIGGER trg_projects_updated_at
-    BEFORE UPDATE ON projects
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-DROP TRIGGER IF EXISTS trg_backgrounds_updated_at ON backgrounds;
-CREATE TRIGGER trg_backgrounds_updated_at
-    BEFORE UPDATE ON backgrounds
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-DROP TRIGGER IF EXISTS trg_characters_updated_at ON characters;
-CREATE TRIGGER trg_characters_updated_at
-    BEFORE UPDATE ON characters
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- =====================================================================
--- 4. plots
--- =====================================================================
-CREATE TABLE IF NOT EXISTS plots (
-    plot_id        VARCHAR(36) PRIMARY KEY,
-    project_id     VARCHAR(36),
-    title          VARCHAR(200) NOT NULL,
-    idea           TEXT NOT NULL,
-    art_style      VARCHAR(50),
-    character_id   VARCHAR(36),
-    scenes_json    TEXT,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    background_id  VARCHAR(36),
-    CONSTRAINT plots_project_id_fkey
-        FOREIGN KEY (project_id) REFERENCES projects(project_id),
-    CONSTRAINT plots_character_id_fkey
-        FOREIGN KEY (character_id) REFERENCES characters(character_id),
-    CONSTRAINT plots_background_id_fkey
-        FOREIGN KEY (background_id) REFERENCES backgrounds(background_id)
+CREATE TABLE public.plots (
+  plot_id character varying NOT NULL,
+  project_id character varying,
+  title character varying NOT NULL,
+  idea text NOT NULL,
+  art_style character varying,
+  character_id character varying,
+  scenes_json text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  background_id character varying,
+  CONSTRAINT plots_pkey PRIMARY KEY (plot_id),
+  CONSTRAINT plots_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(project_id),
+  CONSTRAINT plots_character_id_fkey FOREIGN KEY (character_id) REFERENCES public.characters(character_id),
+  CONSTRAINT plots_background_id_fkey FOREIGN KEY (background_id) REFERENCES public.backgrounds(background_id)
 );
-
--- =====================================================================
--- 5. images
--- =====================================================================
-CREATE TABLE IF NOT EXISTS images (
-    image_id      VARCHAR(36) PRIMARY KEY,
-    plot_id       VARCHAR(36) NOT NULL,
-    scene_number  INT NOT NULL,
-    frame_type    VARCHAR(10) NOT NULL
-                  CHECK (frame_type IN ('FIRST', 'LAST')),
-    prompt        TEXT,
-    image_url     VARCHAR(500),
-    status        VARCHAR(20) NOT NULL DEFAULT 'PENDING'
-                  CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT images_plot_id_fkey
-        FOREIGN KEY (plot_id) REFERENCES plots(plot_id)
+CREATE TABLE public.projects (
+  project_id character varying NOT NULL,
+  title character varying NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  background_image_url text,
+  user_id character varying,
+  CONSTRAINT projects_pkey PRIMARY KEY (project_id),
+  CONSTRAINT projects_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id)
 );
-
--- =====================================================================
--- 6. videos
--- =====================================================================
-CREATE TABLE IF NOT EXISTS videos (
-    video_id        VARCHAR(36) PRIMARY KEY,
-    plot_id         VARCHAR(36),
-    scene_number    INT,
-    video_prompt    TEXT,
-    first_image_id  VARCHAR(36),
-    last_image_id   VARCHAR(36),
-    video_url       VARCHAR(500),
-    duration        INT,
-    video_type      VARCHAR(10) NOT NULL
-                    CHECK (video_type IN ('SCENE', 'MERGED')),
-    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING'
-                    CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT videos_plot_id_fkey
-        FOREIGN KEY (plot_id) REFERENCES plots(plot_id),
-    CONSTRAINT videos_first_image_id_fkey
-        FOREIGN KEY (first_image_id) REFERENCES images(image_id),
-    CONSTRAINT videos_last_image_id_fkey
-        FOREIGN KEY (last_image_id) REFERENCES images(image_id)
+CREATE TABLE public.users (
+  user_id character varying NOT NULL,
+  username character varying NOT NULL,
+  CONSTRAINT users_pkey PRIMARY KEY (user_id)
+);
+CREATE TABLE public.videos (
+  video_id character varying NOT NULL,
+  plot_id character varying,
+  scene_number integer,
+  video_prompt text,
+  first_image_id character varying,
+  last_image_id character varying,
+  video_url character varying,
+  duration integer,
+  video_type character varying NOT NULL CHECK (video_type::text = ANY (ARRAY['SCENE'::character varying, 'MERGED'::character varying]::text[])),
+  status character varying NOT NULL DEFAULT 'PENDING'::character varying CHECK (status::text = ANY (ARRAY['PENDING'::character varying, 'PROCESSING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying]::text[])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT videos_pkey PRIMARY KEY (video_id),
+  CONSTRAINT videos_plot_id_fkey FOREIGN KEY (plot_id) REFERENCES public.plots(plot_id),
+  CONSTRAINT videos_first_image_id_fkey FOREIGN KEY (first_image_id) REFERENCES public.images(image_id),
+  CONSTRAINT videos_last_image_id_fkey FOREIGN KEY (last_image_id) REFERENCES public.images(image_id)
 );
