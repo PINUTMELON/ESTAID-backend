@@ -36,6 +36,13 @@ claude:
     model: claude-opus-4-6
     version: 2023-06-01
 
+# Supabase Storage 설정
+supabase:
+  url: ${SUPABASE_URL}
+  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
+  storage:
+    bucket: images
+
 # FAL.ai API 설정
 # - image-url: FLUX Kontext [pro] - 씬 이미지 생성 (동기)
 # - video-url: Wan 2.1 FLF2V - 씬 영상 생성 (비동기 큐)
