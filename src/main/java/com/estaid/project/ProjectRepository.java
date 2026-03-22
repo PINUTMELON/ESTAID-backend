@@ -19,4 +19,6 @@ public interface ProjectRepository extends JpaRepository<Project, String> {
     List<Project> findByUserIdOrderByCreatedAtDesc(String userId);
 
     Optional<Project> findByProjectIdAndUserId(String projectId, String userId);
+
+    Optional<Project> findByProjectId(String projectId);
 }

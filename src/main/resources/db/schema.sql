@@ -1,6 +1,17 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.assets (
+  asset_id character varying NOT NULL,
+  project_id character varying NOT NULL,
+  type character varying NOT NULL CHECK (type::text = ANY (ARRAY['CHARACTER'::character varying, 'BACKGROUND'::character varying]::text[])),
+  image_url text NOT NULL,
+  prompt text,
+  style character varying,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT assets_pkey PRIMARY KEY (asset_id),
+  CONSTRAINT assets_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(project_id)
+);
 CREATE TABLE public.backgrounds (
   background_id character varying NOT NULL,
   project_id character varying,
@@ -52,6 +63,17 @@ CREATE TABLE public.plots (
   CONSTRAINT plots_character_id_fkey FOREIGN KEY (character_id) REFERENCES public.characters(character_id),
   CONSTRAINT plots_background_id_fkey FOREIGN KEY (background_id) REFERENCES public.backgrounds(background_id)
 );
+CREATE TABLE public.project_ratings (
+  rating_id character varying NOT NULL,
+  project_id character varying NOT NULL,
+  user_id character varying NOT NULL,
+  rating integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT project_ratings_pkey PRIMARY KEY (rating_id),
+  CONSTRAINT project_ratings_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(project_id),
+  CONSTRAINT project_ratings_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id)
+);
 CREATE TABLE public.projects (
   project_id character varying NOT NULL,
   title character varying NOT NULL,
@@ -59,6 +81,10 @@ CREATE TABLE public.projects (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   background_image_url text,
   user_id character varying,
+  settings_json text,
+  rating_sum integer NOT NULL DEFAULT 0,
+  rating_count integer NOT NULL DEFAULT 0,
+  average_rating numeric NOT NULL DEFAULT 0.00,
   CONSTRAINT projects_pkey PRIMARY KEY (project_id),
   CONSTRAINT projects_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id)
 );

@@ -1,8 +1,12 @@
 package com.estaid.project;
 
 import com.estaid.common.exception.BusinessException;
+import com.estaid.project.dto.ProjectRatingRequest;
+import com.estaid.project.dto.ProjectRatingResponse;
 import com.estaid.project.dto.ProjectRequest;
 import com.estaid.project.dto.ProjectResponse;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProjectService {
 
     private final ProjectRepository projectRepository;
+    private final ProjectRatingRepository projectRatingRepository;
 
     @Transactional(readOnly = true)
     public List<ProjectResponse> findAllByUserId(String userId) {
@@ -53,6 +58,36 @@ public class ProjectService {
 
         log.info("프로젝트 수정 완료: projectId={}, userId={}", projectId, userId);
         return ProjectResponse.from(project);
+    }
+
+    @Transactional
+    public ProjectRatingResponse addRating(String projectId, ProjectRatingRequest request, String userId) {
+        Project project = projectRepository.findByProjectId(projectId)
+                .orElseThrow(() -> new BusinessException(
+                        "프로젝트를 찾을 수 없습니다. id=" + projectId,
+                        HttpStatus.NOT_FOUND));
+
+        ProjectRating projectRating = projectRatingRepository.findByProject_ProjectIdAndUserId(projectId, userId)
+                .orElseGet(() -> ProjectRating.builder()
+                        .project(project)
+                        .userId(userId)
+                        .build());
+
+        projectRating.setRating(request.rating());
+        projectRatingRepository.save(projectRating);
+
+        int nextRatingSum = projectRatingRepository.sumRatingsByProjectId(projectId);
+        int nextRatingCount = Math.toIntExact(projectRatingRepository.countByProject_ProjectId(projectId));
+        BigDecimal nextAverageRating = BigDecimal.valueOf(nextRatingSum)
+                .divide(BigDecimal.valueOf(nextRatingCount), 2, RoundingMode.HALF_UP);
+
+        project.setRatingSum(nextRatingSum);
+        project.setRatingCount(nextRatingCount);
+        project.setAverageRating(nextAverageRating);
+
+        log.info("프로젝트 평점 반영 완료: projectId={}, userId={}, rating={}, averageRating={}, ratingCount={}",
+                projectId, userId, request.rating(), nextAverageRating, nextRatingCount);
+        return ProjectRatingResponse.from(project);
     }
 
     @Transactional

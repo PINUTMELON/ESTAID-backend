@@ -13,5 +13,7 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, String> 
 
     List<ProjectEntity> findByUserIdNotOrderByCreatedAtDesc(String userId);
 
+    List<ProjectEntity> findAllByOrderByAverageRatingDescRatingCountDescCreatedAtDesc();
+
     Optional<ProjectEntity> findByProjectIdAndUserId(String projectId, String userId);
 }
