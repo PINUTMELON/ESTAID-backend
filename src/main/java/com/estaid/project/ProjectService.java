@@ -1,6 +1,7 @@
 package com.estaid.project;
 
 import com.estaid.common.exception.BusinessException;
+import com.estaid.project.dto.ProjectCreateRequest;
 import com.estaid.project.dto.ProjectRatingRequest;
 import com.estaid.project.dto.ProjectRatingResponse;
 import com.estaid.project.dto.ProjectRequest;
@@ -36,11 +37,10 @@ public class ProjectService {
     }
 
     @Transactional
-    public ProjectResponse create(ProjectRequest request, String userId) {
+    public ProjectResponse create(ProjectCreateRequest request, String userId) {
         Project project = Project.builder()
                 .title(request.getTitle())
                 .userId(userId)
-                .backgroundImageUrl(request.getBackgroundImageUrl())
                 .build();
 
         Project saved = projectRepository.save(project);

@@ -2,6 +2,7 @@ package com.estaid.project;
 
 import com.estaid.auth.service.AuthenticatedUserService;
 import com.estaid.common.response.ApiResponse;
+import com.estaid.project.dto.ProjectCreateRequest;
 import com.estaid.project.dto.ProjectRatingRequest;
 import com.estaid.project.dto.ProjectRatingResponse;
 import com.estaid.project.dto.ProjectRequest;
@@ -28,7 +29,7 @@ public class ProjectCommandAliasController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<ProjectResponse>> create(
-            @Valid @RequestBody ProjectRequest request,
+            @Valid @RequestBody ProjectCreateRequest request,
             HttpServletRequest httpServletRequest) {
         String userId = authenticatedUserService.requireCurrentUserId(httpServletRequest);
         ProjectResponse response = projectService.create(request, userId);
