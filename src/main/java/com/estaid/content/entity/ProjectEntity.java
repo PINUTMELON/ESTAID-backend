@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -27,6 +28,15 @@ public class ProjectEntity {
 
     @Column(name = "background_image_url")
     private String backgroundImageUrl;
+
+    @Column(name = "rating_sum", nullable = false)
+    private Integer ratingSum;
+
+    @Column(name = "rating_count", nullable = false)
+    private Integer ratingCount;
+
+    @Column(name = "average_rating", nullable = false, precision = 3, scale = 2)
+    private BigDecimal averageRating;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;

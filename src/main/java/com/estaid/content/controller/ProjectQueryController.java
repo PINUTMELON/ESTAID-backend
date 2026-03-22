@@ -3,6 +3,7 @@ package com.estaid.content.controller;
 import com.estaid.auth.service.AuthenticatedUserService;
 import com.estaid.common.response.ApiResponse;
 import com.estaid.content.dto.ProjectDetailResponse;
+import com.estaid.content.dto.ProjectRankingResponse;
 import com.estaid.content.dto.ProjectScenesResponse;
 import com.estaid.content.service.ContentQueryService;
 import com.estaid.project.ProjectService;
@@ -28,6 +29,12 @@ public class ProjectQueryController {
     public ApiResponse<List<ProjectResponse>> getMyProjects(HttpServletRequest request) {
         String userId = authenticatedUserService.requireCurrentUserId(request);
         return ApiResponse.ok(projectService.findAllByUserId(userId));
+    }
+
+    @GetMapping("/ranking")
+    public ApiResponse<List<ProjectRankingResponse>> getProjectRanking(HttpServletRequest request) {
+        authenticatedUserService.requireCurrentUserId(request);
+        return ApiResponse.ok(contentQueryService.getProjectRanking());
     }
 
     @GetMapping("/{id}")

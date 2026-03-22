@@ -8,6 +8,7 @@ import com.estaid.content.dto.PlotCharacterResponse;
 import com.estaid.content.dto.PlotSceneSummaryResponse;
 import com.estaid.content.dto.ProjectDetailResponse;
 import com.estaid.content.dto.ProjectInfoResponse;
+import com.estaid.content.dto.ProjectRankingResponse;
 import com.estaid.content.dto.ProjectSceneDetailResponse;
 import com.estaid.content.dto.ProjectScenesResponse;
 import com.estaid.content.dto.SceneImageItemResponse;
@@ -96,6 +97,30 @@ public class ContentQueryService {
 
         items.sort(Comparator.comparing(GalleryItemResponse::createdAt, Comparator.nullsLast(Comparator.reverseOrder())));
         return items;
+    }
+
+    public List<ProjectRankingResponse> getProjectRanking() {
+        List<ProjectEntity> projects = projectRepository.findAllByOrderByAverageRatingDescRatingCountDescCreatedAtDesc();
+        List<ProjectRankingResponse> rankings = new ArrayList<>();
+
+        int rank = 1;
+        for (ProjectEntity project : projects) {
+            String ownerUsername = userRepository.findById(project.getUserId())
+                    .map(com.estaid.user.User::getUsername)
+                    .orElse(project.getUserId());
+
+            rankings.add(new ProjectRankingResponse(
+                    rank++,
+                    project.getProjectId(),
+                    project.getTitle(),
+                    ownerUsername,
+                    project.getBackgroundImageUrl(),
+                    project.getAverageRating(),
+                    project.getRatingCount(),
+                    project.getCreatedAt()));
+        }
+
+        return rankings;
     }
 
     public ProjectDetailResponse getProjectDetail(String projectId, String userId) {

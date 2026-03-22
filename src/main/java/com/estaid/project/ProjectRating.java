@@ -5,10 +5,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import java.math.BigDecimal;
+import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,39 +19,31 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "projects")
+@Table(
+        name = "project_ratings",
+        uniqueConstraints = @UniqueConstraint(name = "project_ratings_project_id_user_id_key", columnNames = {"project_id", "user_id"})
+)
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Project {
+public class ProjectRating {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "project_id", length = 36)
-    private String projectId;
+    @Column(name = "rating_id", length = 36)
+    private String ratingId;
 
-    @Column(name = "title", length = 200, nullable = false)
-    private String title;
+    @ManyToOne
+    @JoinColumn(name = "project_id", nullable = false)
+    private Project project;
 
-    @Column(name = "user_id", length = 36)
+    @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
 
-    @Column(name = "background_image_url", columnDefinition = "TEXT")
-    private String backgroundImageUrl;
-
-    @Builder.Default
-    @Column(name = "rating_sum", nullable = false)
-    private Integer ratingSum = 0;
-
-    @Builder.Default
-    @Column(name = "rating_count", nullable = false)
-    private Integer ratingCount = 0;
-
-    @Builder.Default
-    @Column(name = "average_rating", nullable = false, precision = 3, scale = 2)
-    private BigDecimal averageRating = BigDecimal.ZERO;
+    @Column(name = "rating", nullable = false)
+    private Integer rating;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -61,15 +55,6 @@ public class Project {
     protected void onCreate() {
         createdAt = OffsetDateTime.now();
         updatedAt = OffsetDateTime.now();
-        if (ratingSum == null) {
-            ratingSum = 0;
-        }
-        if (ratingCount == null) {
-            ratingCount = 0;
-        }
-        if (averageRating == null) {
-            averageRating = BigDecimal.ZERO;
-        }
     }
 
     @PreUpdate
