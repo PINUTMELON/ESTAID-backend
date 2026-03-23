@@ -56,4 +56,5 @@ fal:
   api:
     key: ${FAL_KEY}
     image-url: https://fal.run/fal-ai/flux-pro/kontext
+    text-image-url: https://fal.run/fal-ai/flux-pro
     video-url: https://queue.fal.run/fal-ai/wan-flf2v

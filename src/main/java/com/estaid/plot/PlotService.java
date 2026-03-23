@@ -225,8 +225,9 @@ public class PlotService {
                         "씬 번호를 찾을 수 없습니다. sceneNumber=" + request.getSceneNumber(),
                         HttpStatus.NOT_FOUND));
 
-        // 3. FAL.ai로 이미지 재생성 (referenceImageUrl 없이 프롬프트만 사용)
-        String imageUrl = falAiService.generateImageSync(null, request.getPrompt());
+        // 3. FAL.ai FLUX Pro text-to-image로 프레임 이미지 생성 (프롬프트만 사용)
+        //    FLUX Kontext는 image_url 필수이므로, text-to-image 전용 메서드 사용
+        String imageUrl = falAiService.generateTextImageSync(request.getPrompt());
 
         // 4. 해당 프레임 URL 업데이트 후 scenesJson 저장
         boolean isFirst = "FIRST".equalsIgnoreCase(request.getFirstOrLast());

@@ -66,9 +66,13 @@ public class FalAiService {
     @Value("${fal.api.key}")
     private String falApiKey;
 
-    /** FLUX Kontext 이미지 생성 엔드포인트 전체 URL */
+    /** FLUX Kontext 이미지 생성 엔드포인트 전체 URL (image-to-image, referenceImageUrl 필수) */
     @Value("${fal.api.image-url}")
     private String imageApiUrl;
+
+    /** FLUX Pro 텍스트 이미지 생성 엔드포인트 전체 URL (text-to-image, referenceImageUrl 불필요) */
+    @Value("${fal.api.text-image-url}")
+    private String textImageApiUrl;
 
     /** Wan 2.1 FLF2V 영상 생성 큐 기본 URL */
     @Value("${fal.api.video-url}")
@@ -259,6 +263,60 @@ public class FalAiService {
     }
 
     /**
+     * FAL.ai FLUX Pro text-to-image API를 동기 호출한다.
+     *
+     * <p>요청 바디:</p>
+     * <pre>
+     * {
+     *   "prompt": "{prompt}"
+     * }
+     * </pre>
+     *
+     * @param prompt 이미지 생성 프롬프트
+     * @return 생성된 이미지 URL
+     * @throws RuntimeException FAL.ai API 호출 실패 또는 응답 파싱 실패 시
+     */
+    private String callTextImageApi(String prompt) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("prompt", prompt);
+
+        log.debug("FAL.ai text-to-image 생성 요청: url={}, prompt={}", textImageApiUrl, prompt);
+
+        String responseJson;
+        try {
+            responseJson = falWebClient.post()
+                    .uri(textImageApiUrl)
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .onStatus(status -> status.isError(),
+                            response -> response.bodyToMono(String.class)
+                                    .flatMap(body -> Mono.error(
+                                            new RuntimeException("FAL.ai 이미지 API 오류: " + body))))
+                    .bodyToMono(String.class)
+                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                    .block();
+        } catch (Exception e) {
+            log.error("FAL.ai text-to-image API 호출 실패: {}", e.getMessage());
+            throw new RuntimeException("FAL.ai 이미지 생성에 실패했습니다: " + e.getMessage(), e);
+        }
+
+        // 응답에서 images[0].url 추출
+        try {
+            JsonNode root = objectMapper.readTree(responseJson);
+            String imageUrl = root.path("images").get(0).path("url").asText();
+            if (imageUrl == null || imageUrl.isBlank()) {
+                throw new RuntimeException("FAL.ai 응답에서 이미지 URL을 찾을 수 없습니다.");
+            }
+            return imageUrl;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("FAL.ai text-to-image 응답 파싱 실패: response={}", responseJson);
+            throw new RuntimeException("FAL.ai 이미지 응답 파싱 실패: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * FAL.ai Wan 2.1 FLF2V 영상 생성 큐에 작업을 제출한다.
      *
      * <p>요청 바디:</p>
@@ -430,6 +488,19 @@ public class FalAiService {
      */
     public String generateImageSync(String referenceImageUrl, String prompt) {
         return callImageApi(referenceImageUrl, prompt);
+    }
+
+    /**
+     * FAL.ai FLUX Pro text-to-image 동기 호출 (참조 이미지 없이 프롬프트만 사용).
+     *
+     * <p>씬 프레임 재생성에 사용된다. FLUX Kontext와 달리 {@code image_url} 없이 호출한다.</p>
+     *
+     * @param prompt 이미지 생성 프롬프트
+     * @return 생성된 이미지 URL
+     * @throws RuntimeException FAL.ai API 호출 실패 시
+     */
+    public String generateTextImageSync(String prompt) {
+        return callTextImageApi(prompt);
     }
 
     // ─────────────────────────────────────────
