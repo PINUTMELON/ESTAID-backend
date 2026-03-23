@@ -23,4 +23,7 @@ public interface ImageRepository extends JpaRepository<ImageEntity, String> {
             order by i.sceneNumber asc
             """)
     List<Integer> findDistinctSceneNumbersByPlotId(@Param("plotId") String plotId);
+
+    /** 여러 플롯의 모든 이미지를 한번에 조회한다 (N+1 방지용 배치 쿼리). */
+    List<ImageEntity> findByPlotIdInOrderByPlotIdAscSceneNumberAscFrameTypeAsc(List<String> plotIds);
 }

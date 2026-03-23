@@ -81,11 +81,14 @@ public class FalAiService {
     /** FAL.ai 호출용 WebClient (PostConstruct에서 초기화) */
     private WebClient falWebClient;
 
-    /** 영상 상태 폴링 간격 (밀리초) */
-    private static final int POLLING_INTERVAL_MS = 3_000;
+    /** 영상 상태 폴링 초기 간격 (밀리초) — 지수 백오프 시작값 */
+    private static final int POLLING_INITIAL_INTERVAL_MS = 2_000;
 
-    /** 최대 폴링 횟수 (3초 × 200 = 약 10분) */
-    private static final int MAX_POLLING_ATTEMPTS = 200;
+    /** 영상 상태 폴링 최대 간격 (밀리초) — 지수 백오프 상한 */
+    private static final int POLLING_MAX_INTERVAL_MS = 15_000;
+
+    /** 최대 폴링 총 시간 (밀리초) — 약 10분 */
+    private static final long POLLING_TIMEOUT_MS = 600_000;
 
     /** FAL.ai API 호출 타임아웃 (초) — FLUX Kontext 느릴 때 대비 240초 */
     private static final int TIMEOUT_SECONDS = 240;
@@ -157,7 +160,7 @@ public class FalAiService {
      * <pre>
      *   1. Video 상태 → PROCESSING
      *   2. FAL.ai 큐에 작업 제출 → requestId 획득
-     *   3. 상태 폴링 (3초 간격, 최대 10분)
+     *   3. 상태 폴링 (지수 백오프: 2초→4초→8초→15초 상한, 최대 10분)
      *   4. 성공 시 Video.videoUrl 저장, 상태 → COMPLETED
      *   5. 실패·타임아웃 시 상태 → FAILED
      * </pre>
@@ -296,22 +299,34 @@ public class FalAiService {
 
         log.debug("FAL.ai text-to-image 생성 요청: url={}, prompt={}", textImageApiUrl, prompt);
 
-        String responseJson;
-        try {
-            responseJson = falWebClient.post()
-                    .uri(textImageApiUrl)
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .onStatus(status -> status.isError(),
-                            response -> response.bodyToMono(String.class)
-                                    .flatMap(body -> Mono.error(
-                                            new RuntimeException("FAL.ai 이미지 API 오류: " + body))))
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
-                    .block();
-        } catch (Exception e) {
-            log.error("FAL.ai text-to-image API 호출 실패: {}", e.getMessage());
-            throw new RuntimeException("FAL.ai 이미지 생성에 실패했습니다: " + e.getMessage(), e);
+        // 타임아웃 시 1회 재시도 (callImageApi와 동일 패턴)
+        String responseJson = null;
+        Exception lastException = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                responseJson = falWebClient.post()
+                        .uri(textImageApiUrl)
+                        .bodyValue(requestBody)
+                        .retrieve()
+                        .onStatus(status -> status.isError(),
+                                response -> response.bodyToMono(String.class)
+                                        .flatMap(body -> Mono.error(
+                                                new RuntimeException("FAL.ai 이미지 API 오류: " + body))))
+                        .bodyToMono(String.class)
+                        .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                        .block();
+                break; // 성공 시 루프 탈출
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("FAL.ai text-to-image API 호출 실패 (attempt={}): {}", attempt + 1, e.getMessage());
+                if (attempt < 1) {
+                    log.info("FAL.ai text-to-image 재시도 중...");
+                }
+            }
+        }
+        if (responseJson == null) {
+            log.error("FAL.ai text-to-image API 최종 실패: {}", lastException.getMessage());
+            throw new RuntimeException("FAL.ai 이미지 생성에 실패했습니다: " + lastException.getMessage(), lastException);
         }
 
         // 응답에서 images[0].url 추출
@@ -395,9 +410,13 @@ public class FalAiService {
     }
 
     /**
-     * FAL.ai 영상 생성 완료까지 폴링한다.
+     * FAL.ai 영상 생성 완료까지 지수 백오프로 폴링한다.
      *
-     * <p>3초 간격으로 상태를 확인하며, 최대 {@link #MAX_POLLING_ATTEMPTS}회(약 10분) 대기한다.</p>
+     * <p>폴링 간격: 2초 → 4초 → 8초 → 15초(상한) 으로 증가하며,
+     * 총 {@link #POLLING_TIMEOUT_MS}(약 10분) 이내에 완료되지 않으면 타임아웃한다.</p>
+     *
+     * <p>지수 백오프를 사용하면 초기에는 빠르게 상태를 확인하고,
+     * 시간이 지나면 간격을 넓혀 불필요한 API 호출과 스레드 점유를 줄인다.</p>
      *
      * <p>상태값: IN_QUEUE → IN_PROGRESS → COMPLETED / FAILED</p>
      *
@@ -409,8 +428,13 @@ public class FalAiService {
         String statusUrl = videoApiUrl + "/requests/" + requestId + "/status";
         String resultUrl = videoApiUrl + "/requests/" + requestId;
 
-        for (int attempt = 0; attempt < MAX_POLLING_ATTEMPTS; attempt++) {
-            Thread.sleep(POLLING_INTERVAL_MS);
+        long startTime = System.currentTimeMillis();
+        long currentInterval = POLLING_INITIAL_INTERVAL_MS;
+        int attempt = 0;
+
+        while (System.currentTimeMillis() - startTime < POLLING_TIMEOUT_MS) {
+            Thread.sleep(currentInterval);
+            attempt++;
 
             // 상태 조회
             String statusJson;
@@ -422,7 +446,10 @@ public class FalAiService {
                         .timeout(Duration.ofSeconds(30))
                         .block();
             } catch (Exception e) {
-                log.warn("FAL.ai 상태 조회 실패 (attempt={}): {}", attempt + 1, e.getMessage());
+                log.warn("FAL.ai 상태 조회 실패 (attempt={}, interval={}ms): {}",
+                        attempt, currentInterval, e.getMessage());
+                // 실패 시에도 백오프 적용
+                currentInterval = Math.min(currentInterval * 2, POLLING_MAX_INTERVAL_MS);
                 continue;
             }
 
@@ -432,20 +459,22 @@ public class FalAiService {
                 JsonNode root = objectMapper.readTree(statusJson);
                 status = root.path("status").asText();
             } catch (Exception e) {
-                log.warn("FAL.ai 상태 응답 파싱 실패 (attempt={}): {}", attempt + 1, e.getMessage());
+                log.warn("FAL.ai 상태 응답 파싱 실패 (attempt={}): {}", attempt, e.getMessage());
+                currentInterval = Math.min(currentInterval * 2, POLLING_MAX_INTERVAL_MS);
                 continue;
             }
 
-            log.info("FAL.ai 영상 생성 상태: requestId={}, status={}, attempt={}, raw={}",
-                    requestId, status, attempt + 1, statusJson);
+            log.info("FAL.ai 영상 생성 상태: requestId={}, status={}, attempt={}, interval={}ms",
+                    requestId, status, attempt, currentInterval);
 
             if ("COMPLETED".equals(status)) {
-                // 결과 조회
                 return fetchVideoResult(resultUrl);
             } else if ("FAILED".equals(status)) {
                 throw new RuntimeException("FAL.ai 영상 생성이 실패 상태로 종료되었습니다. requestId=" + requestId);
             }
-            // IN_QUEUE, IN_PROGRESS → 계속 폴링
+
+            // IN_QUEUE, IN_PROGRESS → 지수 백오프로 간격 증가
+            currentInterval = Math.min(currentInterval * 2, POLLING_MAX_INTERVAL_MS);
         }
 
         throw new RuntimeException("FAL.ai 영상 생성 타임아웃 (10분 초과). requestId=" + requestId);

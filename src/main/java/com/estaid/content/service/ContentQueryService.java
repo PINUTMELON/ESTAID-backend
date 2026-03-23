@@ -35,14 +35,16 @@ import com.estaid.content.repository.ProjectRepository;
 import com.estaid.content.repository.VideoRepository;
 import com.estaid.plot.dto.SceneDto;
 import com.estaid.user.UserRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -88,26 +90,54 @@ public class ContentQueryService {
 
     public List<GalleryItemResponse> getGallery(String currentUserId) {
         List<ProjectEntity> projects = projectRepository.findByUserIdNotOrderByCreatedAtDesc(currentUserId);
+        if (projects.isEmpty()) {
+            return List.of();
+        }
+
+        // ── 배치 조회: 유저, 플롯, 이미지, 비디오를 한번에 가져온다 ──
+        List<String> userIds = projects.stream().map(ProjectEntity::getUserId).distinct().toList();
+        Map<String, String> usernameMap = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(com.estaid.user.User::getUserId, com.estaid.user.User::getUsername));
+
+        List<String> projectIds = projects.stream().map(ProjectEntity::getProjectId).toList();
+        List<PlotEntity> allPlots = plotRepository.findByProjectIdInOrderByCreatedAtAsc(projectIds);
+        Map<String, List<PlotEntity>> plotsByProject = allPlots.stream()
+                .collect(Collectors.groupingBy(PlotEntity::getProjectId, LinkedHashMap::new, Collectors.toList()));
+
+        List<String> allPlotIds = allPlots.stream().map(PlotEntity::getPlotId).toList();
+        if (allPlotIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 이미지: plotId+sceneNumber별로 그룹화
+        Map<String, List<ImageEntity>> imagesByPlotScene = imageRepository
+                .findByPlotIdInOrderByPlotIdAscSceneNumberAscFrameTypeAsc(allPlotIds).stream()
+                .collect(Collectors.groupingBy(img -> img.getPlotId() + ":" + img.getSceneNumber()));
+
+        // 비디오: plotId+sceneNumber별 최신 1건만 추출
+        Map<String, VideoEntity> latestVideoByPlotScene = buildLatestVideoMap(allPlotIds);
+
+        // ── 갤러리 아이템 구성 (추가 쿼리 없음) ──
         List<GalleryItemResponse> items = new ArrayList<>();
 
         for (ProjectEntity project : projects) {
-            String ownerUsername = userRepository.findById(project.getUserId())
-                    .map(com.estaid.user.User::getUsername)
-                    .orElse(project.getUserId());
+            String ownerUsername = usernameMap.getOrDefault(project.getUserId(), project.getUserId());
+            List<PlotEntity> plots = plotsByProject.getOrDefault(project.getProjectId(), List.of());
 
-            List<PlotEntity> plots = plotRepository.findByProjectIdOrderByCreatedAtAsc(project.getProjectId());
             for (PlotEntity plot : plots) {
-                for (Integer sceneNumber : sceneNumbersForPlot(plot.getPlotId())) {
-                    Optional<VideoEntity> video = findSceneVideo(plot.getPlotId(), sceneNumber);
-                    if (video.isEmpty()) {
+                // 이미지·비디오에서 씬 번호 합산
+                TreeSet<Integer> sceneNumbers = collectSceneNumbers(plot.getPlotId(), imagesByPlotScene, latestVideoByPlotScene);
+
+                for (Integer sceneNumber : sceneNumbers) {
+                    String key = plot.getPlotId() + ":" + sceneNumber;
+                    VideoEntity video = latestVideoByPlotScene.get(key);
+                    if (video == null) {
                         continue;
                     }
 
-                    String thumbnailImageUrl = imageRepository.findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
-                                    plot.getPlotId(), sceneNumber)
-                            .stream()
+                    String thumbnailImageUrl = imagesByPlotScene.getOrDefault(key, List.of()).stream()
                             .map(ImageEntity::getImageUrl)
-                            .filter(imageUrl -> imageUrl != null && !imageUrl.isBlank())
+                            .filter(url -> url != null && !url.isBlank())
                             .findFirst()
                             .orElse(null);
 
@@ -119,9 +149,9 @@ public class ContentQueryService {
                             plot.getTitle(),
                             sceneNumber,
                             thumbnailImageUrl,
-                            video.get().getVideoId(),
-                            video.get().getVideoUrl(),
-                            video.get().getCreatedAt()));
+                            video.getVideoId(),
+                            video.getVideoUrl(),
+                            video.getCreatedAt()));
                 }
             }
         }
@@ -132,13 +162,19 @@ public class ContentQueryService {
 
     public List<ProjectRankingResponse> getProjectRanking() {
         List<ProjectEntity> projects = projectRepository.findAllByOrderByAverageRatingDescRatingCountDescCreatedAtDesc();
-        List<ProjectRankingResponse> rankings = new ArrayList<>();
+        if (projects.isEmpty()) {
+            return List.of();
+        }
 
+        // 배치 조회: 모든 유저를 한번에 가져온다 (프로젝트 수만큼 개별 조회 → 1회 배치 조회)
+        List<String> userIds = projects.stream().map(ProjectEntity::getUserId).distinct().toList();
+        Map<String, String> usernameMap = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(com.estaid.user.User::getUserId, com.estaid.user.User::getUsername));
+
+        List<ProjectRankingResponse> rankings = new ArrayList<>();
         int rank = 1;
         for (ProjectEntity project : projects) {
-            String ownerUsername = userRepository.findById(project.getUserId())
-                    .map(com.estaid.user.User::getUsername)
-                    .orElse(project.getUserId());
+            String ownerUsername = usernameMap.getOrDefault(project.getUserId(), project.getUserId());
 
             rankings.add(new ProjectRankingResponse(
                     rank++,
@@ -172,13 +208,30 @@ public class ContentQueryService {
      */
     public ProjectDetailResponse getProjectDetail(String projectId, String userId) {
         ProjectEntity project = findOwnedProjectOrThrow(projectId, userId);
+        List<PlotEntity> plots = plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
+        List<String> plotIds = plots.stream().map(PlotEntity::getPlotId).toList();
+
+        // ── 배치 조회: 이미지·비디오를 한번에 가져온다 ──
+        Map<String, List<ImageEntity>> imagesByPlotScene = plotIds.isEmpty() ? Map.of()
+                : imageRepository.findByPlotIdInOrderByPlotIdAscSceneNumberAscFrameTypeAsc(plotIds).stream()
+                        .collect(Collectors.groupingBy(img -> img.getPlotId() + ":" + img.getSceneNumber()));
+
+        Map<String, VideoEntity> latestVideoByPlotScene = plotIds.isEmpty() ? Map.of()
+                : buildLatestVideoMap(plotIds);
+
         List<ProjectSceneDetailResponse> scenes = new ArrayList<>();
 
-        for (PlotEntity plot : plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId)) {
+        for (PlotEntity plot : plots) {
             // scenesJson 파싱 → sceneNumber별 title/firstFrameImageUrl 추출용 맵
-            List<SceneDto> sceneDtos = parseScenes(plot.getScenesJson());
+            List<SceneDto> sceneDtos = plot.getParsedScenes(objectMapper);
 
-            for (Integer sceneNumber : sceneNumbersForPlot(plot.getPlotId())) {
+            // 씬 번호: 프리페치된 이미지·비디오에서 추출
+            TreeSet<Integer> sceneNumbers = collectSceneNumbers(plot.getPlotId(), imagesByPlotScene, latestVideoByPlotScene);
+
+            for (Integer sceneNumber : sceneNumbers) {
+                String key = plot.getPlotId() + ":" + sceneNumber;
+                List<ImageEntity> sceneImages = imagesByPlotScene.getOrDefault(key, List.of());
+
                 // SceneDto에서 해당 씬의 title과 thumbnail 탐색
                 SceneDto matchedDto = sceneDtos.stream()
                         .filter(dto -> dto.getSceneNumber() == sceneNumber)
@@ -191,10 +244,8 @@ public class ContentQueryService {
                 // thumbnail: SceneDto.firstFrameImageUrl → Image 테이블 FIRST 프레임
                 String thumbnail = matchedDto != null ? matchedDto.getFirstFrameImageUrl() : null;
                 if (thumbnail == null) {
-                    // SceneDto에 없으면 Image 테이블에서 FIRST 프레임 탐색
-                    thumbnail = imageRepository.findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
-                                    plot.getPlotId(), sceneNumber)
-                            .stream()
+                    // SceneDto에 없으면 프리페치된 이미지에서 FIRST 프레임 탐색
+                    thumbnail = sceneImages.stream()
                             .filter(img -> "FIRST".equals(img.getFrameType()))
                             .map(ImageEntity::getImageUrl)
                             .filter(url -> url != null && !url.isBlank())
@@ -202,16 +253,29 @@ public class ContentQueryService {
                             .orElse(null);
                 }
 
+                // 이미지 아이템 목록 (프리페치된 데이터 사용)
+                List<SceneImageItemResponse> imageItems = sceneImages.stream()
+                        .map(image -> new SceneImageItemResponse(
+                                image.getImageId(),
+                                image.getSceneNumber(),
+                                image.getFrameType(),
+                                image.getPrompt(),
+                                image.getImageUrl(),
+                                image.getStatus()))
+                        .toList();
+
+                // 비디오 (프리페치된 최신 비디오 사용)
+                VideoEntity video = latestVideoByPlotScene.get(key);
+                SceneVideoResponse videoResponse = video != null ? toSceneVideoResponse(video) : null;
+
                 scenes.add(new ProjectSceneDetailResponse(
                         plot.getPlotId(),
                         plot.getTitle(),
                         sceneNumber,
                         sceneTitle,
                         thumbnail,
-                        toSceneImageItems(plot.getPlotId(), sceneNumber),
-                        findSceneVideo(plot.getPlotId(), sceneNumber)
-                                .map(this::toSceneVideoResponse)
-                                .orElse(null)));
+                        imageItems,
+                        videoResponse));
             }
         }
 
@@ -257,22 +321,33 @@ public class ContentQueryService {
     public VideoPageInitResponse getVideoPageInfo(String projectId, String userId) {
         findOwnedProjectOrThrow(projectId, userId);
 
+        List<PlotEntity> plots = plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
+        List<String> plotIds = plots.stream().map(PlotEntity::getPlotId).toList();
+
+        // ── 배치 조회: 이미지·비디오를 한번에 가져온다 ──
+        Map<String, List<ImageEntity>> imagesByPlotScene = plotIds.isEmpty() ? Map.of()
+                : imageRepository.findByPlotIdInOrderByPlotIdAscSceneNumberAscFrameTypeAsc(plotIds).stream()
+                        .collect(Collectors.groupingBy(img -> img.getPlotId() + ":" + img.getSceneNumber()));
+
+        Map<String, VideoEntity> latestVideoByPlotScene = plotIds.isEmpty() ? Map.of()
+                : buildLatestVideoMap(plotIds);
+
         List<VideoSceneInfoResponse> sceneInfos = new ArrayList<>();
 
-        for (PlotEntity plot : plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId)) {
-            List<SceneDto> sceneDtos = parseScenes(plot.getScenesJson());
+        for (PlotEntity plot : plots) {
+            List<SceneDto> sceneDtos = plot.getParsedScenes(objectMapper);
 
             // scenesJson에 씬이 있으면 SceneDto 기반으로 구성
             if (!sceneDtos.isEmpty()) {
                 for (SceneDto dto : sceneDtos) {
+                    String key = plot.getPlotId() + ":" + dto.getSceneNumber();
+                    List<ImageEntity> sceneImages = imagesByPlotScene.getOrDefault(key, List.of());
+
                     // ── firstFrameUrl ────────────────────────────────
                     String firstFrameUrl = dto.getFirstFrameImageUrl();
                     if (firstFrameUrl == null) {
-                        // Image 테이블 FIRST 프레임으로 폴백
-                        firstFrameUrl = imageRepository
-                                .findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
-                                        plot.getPlotId(), dto.getSceneNumber())
-                                .stream()
+                        // 프리페치된 이미지에서 FIRST 프레임으로 폴백
+                        firstFrameUrl = sceneImages.stream()
                                 .filter(img -> "FIRST".equals(img.getFrameType()))
                                 .map(ImageEntity::getImageUrl)
                                 .filter(url -> url != null && !url.isBlank())
@@ -283,11 +358,8 @@ public class ContentQueryService {
                     // ── lastFrameUrl ─────────────────────────────────
                     String lastFrameUrl = dto.getLastFrameImageUrl();
                     if (lastFrameUrl == null) {
-                        // Image 테이블 LAST 프레임으로 폴백
-                        lastFrameUrl = imageRepository
-                                .findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
-                                        plot.getPlotId(), dto.getSceneNumber())
-                                .stream()
+                        // 프리페치된 이미지에서 LAST 프레임으로 폴백
+                        lastFrameUrl = sceneImages.stream()
                                 .filter(img -> "LAST".equals(img.getFrameType()))
                                 .map(ImageEntity::getImageUrl)
                                 .filter(url -> url != null && !url.isBlank())
@@ -297,11 +369,11 @@ public class ContentQueryService {
 
                     // ── combinedPrompt ────────────────────────────────
                     // 기존 Video.videoPrompt가 있으면 우선 사용, 없으면 프레임 프롬프트 합산
-                    String combinedPrompt = findSceneVideo(plot.getPlotId(), dto.getSceneNumber())
-                            .map(VideoEntity::getVideoPrompt)
-                            .filter(p -> p != null && !p.isBlank())
-                            .orElseGet(() -> buildCombinedPrompt(
-                                    dto.getFirstFramePrompt(), dto.getLastFramePrompt()));
+                    VideoEntity video = latestVideoByPlotScene.get(key);
+                    String combinedPrompt = (video != null && video.getVideoPrompt() != null
+                            && !video.getVideoPrompt().isBlank())
+                            ? video.getVideoPrompt()
+                            : buildCombinedPrompt(dto.getFirstFramePrompt(), dto.getLastFramePrompt());
 
                     sceneInfos.add(new VideoSceneInfoResponse(
                             dto.getSceneNumber(),
@@ -311,27 +383,28 @@ public class ContentQueryService {
                             combinedPrompt));
                 }
             } else {
-                // scenesJson이 없으면 Image 테이블 기반으로 구성 (하위 호환)
-                for (Integer sceneNumber : sceneNumbersForPlot(plot.getPlotId())) {
-                    List<ImageEntity> images = imageRepository
-                            .findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
-                                    plot.getPlotId(), sceneNumber);
+                // scenesJson이 없으면 프리페치된 이미지 기반으로 구성 (하위 호환)
+                TreeSet<Integer> sceneNumbers = collectSceneNumbers(
+                        plot.getPlotId(), imagesByPlotScene, latestVideoByPlotScene);
 
-                    String firstFrameUrl = images.stream()
+                for (Integer sceneNumber : sceneNumbers) {
+                    String key = plot.getPlotId() + ":" + sceneNumber;
+                    List<ImageEntity> sceneImages = imagesByPlotScene.getOrDefault(key, List.of());
+
+                    String firstFrameUrl = sceneImages.stream()
                             .filter(img -> "FIRST".equals(img.getFrameType()))
                             .map(ImageEntity::getImageUrl)
                             .filter(url -> url != null && !url.isBlank())
                             .findFirst().orElse(null);
 
-                    String lastFrameUrl = images.stream()
+                    String lastFrameUrl = sceneImages.stream()
                             .filter(img -> "LAST".equals(img.getFrameType()))
                             .map(ImageEntity::getImageUrl)
                             .filter(url -> url != null && !url.isBlank())
                             .findFirst().orElse(null);
 
-                    String combinedPrompt = findSceneVideo(plot.getPlotId(), sceneNumber)
-                            .map(VideoEntity::getVideoPrompt)
-                            .orElse(null);
+                    VideoEntity video = latestVideoByPlotScene.get(key);
+                    String combinedPrompt = video != null ? video.getVideoPrompt() : null;
 
                     sceneInfos.add(new VideoSceneInfoResponse(
                             sceneNumber, null, firstFrameUrl, lastFrameUrl, combinedPrompt));
@@ -359,13 +432,24 @@ public class ContentQueryService {
         findOwnedProjectOrThrow(projectId, userId);
 
         List<PlotEntity> plots = plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
-        List<PlotSceneSummaryResponse> scenes = new ArrayList<>();
+        List<String> plotIds = plots.stream().map(PlotEntity::getPlotId).toList();
 
+        // 배치 조회: 이미지·비디오에서 씬 번호를 한번에 추출
+        Map<String, List<ImageEntity>> imagesByPlotScene = plotIds.isEmpty() ? Map.of()
+                : imageRepository.findByPlotIdInOrderByPlotIdAscSceneNumberAscFrameTypeAsc(plotIds).stream()
+                        .collect(Collectors.groupingBy(img -> img.getPlotId() + ":" + img.getSceneNumber()));
+
+        Map<String, VideoEntity> latestVideoByPlotScene = plotIds.isEmpty() ? Map.of()
+                : buildLatestVideoMap(plotIds);
+
+        List<PlotSceneSummaryResponse> scenes = new ArrayList<>();
         for (PlotEntity plot : plots) {
+            TreeSet<Integer> sceneNumbers = collectSceneNumbers(
+                    plot.getPlotId(), imagesByPlotScene, latestVideoByPlotScene);
             scenes.add(new PlotSceneSummaryResponse(
                     plot.getPlotId(),
                     plot.getTitle(),
-                    new ArrayList<>(sceneNumbersForPlot(plot.getPlotId()))));
+                    new ArrayList<>(sceneNumbers)));
         }
 
         return new ProjectScenesResponse(projectId, scenes);
@@ -520,27 +604,6 @@ public class ContentQueryService {
     }
 
     /**
-     * PlotEntity.scenesJson(JSON 문자열)을 SceneDto 목록으로 역직렬화한다.
-     *
-     * <p>scenesJson이 null이거나 비어 있으면 빈 리스트를 반환한다.
-     * 역직렬화 실패 시 경고 로그를 남기고 빈 리스트를 반환한다.</p>
-     *
-     * @param scenesJson JSON 배열 문자열 (null 허용)
-     * @return 씬 DTO 목록 (빈 리스트 가능)
-     */
-    private List<SceneDto> parseScenes(String scenesJson) {
-        if (scenesJson == null || scenesJson.isBlank()) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(scenesJson, new TypeReference<List<SceneDto>>() {});
-        } catch (Exception e) {
-            log.warn("scenesJson 파싱 실패 (빈 리스트 반환): {}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
      * 첫 프레임 프롬프트와 마지막 프레임 프롬프트를 합산하여 통합 프롬프트를 구성한다.
      *
      * @param firstFramePrompt 첫 프레임 이미지 생성 프롬프트 (null 허용)
@@ -558,5 +621,61 @@ public class ContentQueryService {
             return firstFramePrompt;
         }
         return firstFramePrompt + " " + lastFramePrompt;
+    }
+
+    // ── 배치 조회 헬퍼 메서드 (N+1 방지) ──────────────────────────
+
+    /**
+     * 여러 플롯의 씬 영상을 한번에 조회하여, (plotId:sceneNumber) → 최신 VideoEntity 맵을 구성한다.
+     *
+     * <p>동일 (plotId, sceneNumber)에 여러 비디오가 있을 경우 createdAt DESC 순으로 정렬되어
+     * 첫 번째 항목(최신)만 맵에 저장한다.</p>
+     *
+     * @param plotIds 조회 대상 플롯 ID 목록
+     * @return (plotId:sceneNumber) 키 → 최신 VideoEntity 맵
+     */
+    private Map<String, VideoEntity> buildLatestVideoMap(List<String> plotIds) {
+        Map<String, VideoEntity> result = new LinkedHashMap<>();
+        for (VideoEntity v : videoRepository.findByPlotIdsAndVideoType(plotIds, VIDEO_TYPE_SCENE)) {
+            // createdAt DESC 순이므로 첫 항목만 저장 (putIfAbsent)
+            String key = v.getPlotId() + ":" + v.getSceneNumber();
+            result.putIfAbsent(key, v);
+        }
+        return result;
+    }
+
+    /**
+     * 프리페치된 이미지·비디오 맵에서 특정 플롯의 씬 번호 목록을 추출한다.
+     *
+     * <p>이미지 테이블과 비디오 테이블 양쪽의 씬 번호를 합산하여 정렬된 TreeSet으로 반환한다.</p>
+     *
+     * @param plotId                  대상 플롯 ID
+     * @param imagesByPlotScene       프리페치된 이미지 맵 (plotId:sceneNumber → ImageEntity 목록)
+     * @param latestVideoByPlotScene  프리페치된 비디오 맵 (plotId:sceneNumber → VideoEntity)
+     * @return 정렬된 씬 번호 집합
+     */
+    private TreeSet<Integer> collectSceneNumbers(
+            String plotId,
+            Map<String, List<ImageEntity>> imagesByPlotScene,
+            Map<String, VideoEntity> latestVideoByPlotScene) {
+
+        String prefix = plotId + ":";
+        TreeSet<Integer> sceneNumbers = new TreeSet<>();
+
+        // 이미지 맵에서 해당 플롯의 씬 번호 추출
+        for (String key : imagesByPlotScene.keySet()) {
+            if (key.startsWith(prefix)) {
+                sceneNumbers.add(Integer.parseInt(key.substring(prefix.length())));
+            }
+        }
+
+        // 비디오 맵에서 해당 플롯의 씬 번호 추출
+        for (String key : latestVideoByPlotScene.keySet()) {
+            if (key.startsWith(prefix)) {
+                sceneNumbers.add(Integer.parseInt(key.substring(prefix.length())));
+            }
+        }
+
+        return sceneNumbers;
     }
 }

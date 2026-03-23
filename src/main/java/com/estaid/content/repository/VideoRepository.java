@@ -44,4 +44,15 @@ public interface VideoRepository extends JpaRepository<VideoEntity, String> {
     List<Integer> findDistinctSceneNumbersByPlotIdAndVideoType(
             @Param("plotId") String plotId,
             @Param("videoType") String videoType);
+
+    /** 여러 플롯의 씬 영상을 한번에 조회한다 (N+1 방지용 배치 쿼리). */
+    @Query("""
+            select v from VideoEntity v
+            where v.plotId in :plotIds
+              and v.videoType = :videoType
+            order by v.plotId, v.sceneNumber, v.createdAt desc
+            """)
+    List<VideoEntity> findByPlotIdsAndVideoType(
+            @Param("plotIds") List<String> plotIds,
+            @Param("videoType") String videoType);
 }
