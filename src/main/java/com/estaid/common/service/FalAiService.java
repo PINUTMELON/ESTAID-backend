@@ -365,13 +365,14 @@ public class FalAiService {
      */
     private String submitVideoJob(String firstFrameUrl, String lastFrameUrl, String prompt) {
         // FAL.ai Wan 2.1 FLF2V 필드명: start_image_url / end_image_url
-        // resolution: 720p, num_inference_steps: 50 → 영상 품질 향상
+        // resolution: 720p + 추론 30스텝 → 화질·자연스러움 균형
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("start_image_url", firstFrameUrl);
         requestBody.put("end_image_url", lastFrameUrl);
         requestBody.put("prompt", prompt);
-        requestBody.put("resolution", "480p");
-        requestBody.put("num_inference_steps", 20); // 빠른 생성을 위해 낮춤 (최대 40)
+        requestBody.put("resolution", "720p");           // 480p→720p 화질 향상
+        requestBody.put("num_inference_steps", 30);       // 20→30 모션 자연스러움 향상 (기본값, 최대 40)
+        requestBody.put("guidance_scale", 5.0);           // 프롬프트 충실도 (기본값 5, 1~10 범위)
 
         log.debug("FAL.ai 영상 생성 큐 제출: firstFrame={}, lastFrame={}", firstFrameUrl, lastFrameUrl);
 
