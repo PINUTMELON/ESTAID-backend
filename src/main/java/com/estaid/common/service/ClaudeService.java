@@ -298,11 +298,15 @@ public class ClaudeService {
 
     /** 영상 프롬프트 생성 시스템 프롬프트 */
     private static final String VIDEO_PROMPT_SYSTEM =
-            "당신은 AI 영상 생성 전문가입니다.\n" +
-            "씬 정보를 받아 FAL.ai Wan 2.1 모델에 최적화된 영상 생성 프롬프트를 영어로 작성하세요.\n" +
-            "프롬프트는 시각적 동작, 카메라 움직임, 분위기를 구체적으로 묘사해야 합니다.\n" +
-            "반드시 영어로만 작성하고, 설명이나 부연 없이 프롬프트 텍스트만 반환하세요.\n" +
-            "길이는 2~3문장으로 작성하세요.";
+            "You are an expert at writing video generation prompts for FAL.ai Wan 2.1 FLF2V model.\n" +
+            "This model interpolates between a START frame and an END frame to create a smooth video.\n" +
+            "Your task: Write a single, concise English prompt (2-3 sentences) that describes:\n" +
+            "  1. The MOTION and TRANSITION happening between the two frames (most important)\n" +
+            "  2. Camera movement (e.g., slow pan, gentle zoom-in, static shot, dolly forward)\n" +
+            "  3. Character actions and how they move or change during the scene\n" +
+            "Focus on MOVEMENT and DYNAMICS, NOT static description of the scene.\n" +
+            "Do NOT describe what is in the scene — describe how it MOVES.\n" +
+            "Return ONLY the prompt text with no explanation or commentary.";
 
     /**
      * 씬 JSON 형식 예시 (Claude에게 출력 포맷 안내)

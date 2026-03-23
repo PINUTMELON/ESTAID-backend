@@ -1,18 +1,36 @@
 spring:
+  servlet:
+    multipart:
+      # 파일 업로드 크기 제한 (기본 1MB → 20MB로 증가)
+      max-file-size: 20MB
+      max-request-size: 25MB
+
   datasource:
     url: ${SUPABASE_DB_URL}
     username: ${SUPABASE_DB_USERNAME}
     password: ${SUPABASE_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # 최소 유휴 커넥션 수 (기본 10과 동일하지만 명시적 선언)
+      minimum-idle: 5
+      # 최대 커넥션 풀 크기 (@Async 스레드 + 웹 요청 동시 처리 고려)
+      maximum-pool-size: 15
+      # 커넥션 획득 타임아웃 (ms) — 기본 30초
+      connection-timeout: 30000
+      # 유휴 커넥션 유지 시간 (ms) — 10분
+      idle-timeout: 600000
+      # 커넥션 최대 수명 (ms) — 30분 (Supabase 서버 측 타임아웃 대비)
+      max-lifetime: 1800000
 
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    # SQL 로깅 비활성화 (운영 성능 최적화 — 디버깅 시 true로 변경)
+    show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
+        format_sql: false
 
 server:
   port: 8080
@@ -20,7 +38,7 @@ server:
 # CORS 허용 Origin
 app:
   cors:
-    allowed-origins: http://localhost:3000
+    allowed-origins: http://localhost:3000,http://localhost:3001,http://localhost:8081,http://3.39.95.111:3000,http://3.39.95.111:3001,https://estaid-frontend.vercel.app,https://clinics-lawyer-boost-issues.trycloudflare.com
   admin:
     username: ${ADMIN_USERNAME:admin}
     password: ${ADMIN_PASSWORD:admin1234}
@@ -50,4 +68,5 @@ fal:
   api:
     key: ${FAL_KEY}
     image-url: https://fal.run/fal-ai/flux-pro/kontext
+    text-image-url: https://fal.run/fal-ai/flux-pro
     video-url: https://queue.fal.run/fal-ai/wan-flf2v

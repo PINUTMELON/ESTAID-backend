@@ -9,7 +9,6 @@ import com.estaid.common.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -140,13 +139,12 @@ public class AssetController {
      * @param quality        이미지 품질 (Multipart 필드, 선택)
      * @return 201 Created + 생성된 자산 정보 (id, name, referenceImageUrl, imageUrl, status)
      */
-    @PostMapping(value = "/api/projects/{projectId}/{assetType}",
-                 consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping("/api/projects/{projectId}/{assetType}")
     public ResponseEntity<ApiResponse<AssetCreateResponse>> createAsset(
             @PathVariable String projectId,
             @PathVariable String assetType,
             @RequestParam("name") String name,
-            @RequestPart("referenceImage") MultipartFile referenceImage,
+            @RequestParam("referenceImage") MultipartFile referenceImage,
             @RequestParam("style") String style,
             @RequestParam(value = "ratio", required = false) String ratio,
             @RequestParam(value = "quality", required = false) String quality) {

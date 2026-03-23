@@ -110,3 +110,65 @@ CREATE TABLE public.videos (
   CONSTRAINT videos_first_image_id_fkey FOREIGN KEY (first_image_id) REFERENCES public.images(image_id),
   CONSTRAINT videos_last_image_id_fkey FOREIGN KEY (last_image_id) REFERENCES public.images(image_id)
 );
+
+-- ============================================================
+-- 성능 최적화 인덱스
+-- PostgreSQL은 FK에 자동 인덱스를 생성하지 않으므로 명시적 생성 필요
+-- ============================================================
+
+-- [High Priority] 핫스팟 쿼리 대응 -------------------------
+
+-- 이미지 조회: plot_id + scene_number + frame_type 복합 인덱스
+-- 사용처: ContentQueryService에서 씬별 이미지 조회 (7회 호출)
+CREATE INDEX idx_images_plot_scene_frame
+    ON public.images (plot_id, scene_number, frame_type);
+
+-- 비디오 조회: plot_id + scene_number + video_type + created_at 복합 인덱스
+-- 사용처: ContentQueryService에서 최신 씬 비디오 조회 (5회 호출)
+CREATE INDEX idx_videos_plot_scene_type_created
+    ON public.videos (plot_id, scene_number, video_type, created_at DESC);
+
+-- 플롯 조회: project_id + created_at 복합 인덱스
+-- 사용처: 프로젝트별 플롯 목록 조회 (4회 호출)
+CREATE INDEX idx_plots_project_created
+    ON public.plots (project_id, created_at);
+
+-- [Medium Priority] FK 조회 및 목록/랭킹 -------------------
+
+-- 프로젝트 목록: user_id + created_at 복합 인덱스
+-- 사용처: 유저별 프로젝트 목록, 갤러리 조회
+CREATE INDEX idx_projects_user_created
+    ON public.projects (user_id, created_at DESC);
+
+-- 프로젝트 랭킹: 평점순 정렬 인덱스 (풀테이블 스캔 방지)
+-- 사용처: 랭킹 페이지 전체 프로젝트 정렬
+CREATE INDEX idx_projects_ranking
+    ON public.projects (average_rating DESC, rating_count DESC, created_at DESC);
+
+-- 평점 집계: project_id 인덱스
+-- 사용처: 평점 합계/개수 집계 쿼리
+CREATE INDEX idx_project_ratings_project
+    ON public.project_ratings (project_id);
+
+-- 평점 중복 확인: project_id + user_id 복합 인덱스
+-- 사용처: 유저별 프로젝트 평점 존재 여부 조회
+CREATE INDEX idx_project_ratings_project_user
+    ON public.project_ratings (project_id, user_id);
+
+-- [Low Priority] 기타 FK 조회 ------------------------------
+
+-- 캐릭터: 프로젝트별 캐릭터 조회
+CREATE INDEX idx_characters_project
+    ON public.characters (project_id);
+
+-- 배경: 프로젝트별 배경 조회
+CREATE INDEX idx_backgrounds_project
+    ON public.backgrounds (project_id);
+
+-- 에셋: 프로젝트별 에셋 목록 (생성일순)
+CREATE INDEX idx_assets_project_created
+    ON public.assets (project_id, created_at);
+
+-- 유저: username 검색
+CREATE INDEX idx_users_username
+    ON public.users (username);
