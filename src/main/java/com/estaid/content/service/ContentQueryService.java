@@ -194,6 +194,12 @@ public class ContentQueryService {
         return new VideoUrlResponse(video.getVideoId(), video.getVideoUrl());
     }
 
+    public VideoUrlResponse getRandomOtherUserVideo(String currentUserId) {
+        VideoEntity video = videoRepository.findRandomByVideoTypeAndProjectUserIdNot(VIDEO_TYPE_SCENE, currentUserId)
+                .orElseThrow(() -> new BusinessException("평가할 다른 사용자의 영상을 찾을 수 없습니다.", HttpStatus.NOT_FOUND));
+        return new VideoUrlResponse(video.getVideoId(), video.getVideoUrl());
+    }
+
     public ImagePromptResponse getImagePrompt(String plotId, Integer sceneNumber) {
         List<ImageEntity> images = imageRepository.findByPlotIdAndSceneNumberOrderByFrameTypeAsc(plotId, sceneNumber);
         if (images.isEmpty()) {
