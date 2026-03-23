@@ -144,7 +144,7 @@ public class AssetController {
             @PathVariable String projectId,
             @PathVariable String assetType,
             @RequestParam("name") String name,
-            @RequestPart("referenceImage") MultipartFile referenceImage,
+            @RequestParam("referenceImage") MultipartFile referenceImage,
             @RequestParam("style") String style,
             @RequestParam(value = "ratio", required = false) String ratio,
             @RequestParam(value = "quality", required = false) String quality) {
