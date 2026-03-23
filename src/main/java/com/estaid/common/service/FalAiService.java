@@ -87,8 +87,8 @@ public class FalAiService {
     /** 최대 폴링 횟수 (3초 × 200 = 약 10분) */
     private static final int MAX_POLLING_ATTEMPTS = 200;
 
-    /** FAL.ai API 호출 타임아웃 (초) */
-    private static final int TIMEOUT_SECONDS = 120;
+    /** FAL.ai API 호출 타임아웃 (초) — FLUX Kontext 느릴 때 대비 240초 */
+    private static final int TIMEOUT_SECONDS = 240;
 
     /**
      * 빈 초기화 후 FAL.ai WebClient를 구성한다.
@@ -230,22 +230,34 @@ public class FalAiService {
 
         log.debug("FAL.ai 이미지 생성 요청: url={}, prompt={}", imageApiUrl, prompt);
 
-        String responseJson;
-        try {
-            responseJson = falWebClient.post()
-                    .uri(imageApiUrl)
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .onStatus(status -> status.isError(),
-                            response -> response.bodyToMono(String.class)
-                                    .flatMap(body -> Mono.error(
-                                            new RuntimeException("FAL.ai 이미지 API 오류: " + body))))
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
-                    .block();
-        } catch (Exception e) {
-            log.error("FAL.ai 이미지 API 호출 실패: {}", e.getMessage());
-            throw new RuntimeException("FAL.ai 이미지 생성에 실패했습니다: " + e.getMessage(), e);
+        // 타임아웃 시 1회 재시도
+        String responseJson = null;
+        Exception lastException = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                responseJson = falWebClient.post()
+                        .uri(imageApiUrl)
+                        .bodyValue(requestBody)
+                        .retrieve()
+                        .onStatus(status -> status.isError(),
+                                response -> response.bodyToMono(String.class)
+                                        .flatMap(body -> Mono.error(
+                                                new RuntimeException("FAL.ai 이미지 API 오류: " + body))))
+                        .bodyToMono(String.class)
+                        .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                        .block();
+                break; // 성공 시 루프 탈출
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("FAL.ai 이미지 API 호출 실패 (attempt={}): {}", attempt + 1, e.getMessage());
+                if (attempt < 1) {
+                    log.info("FAL.ai 이미지 재시도 중...");
+                }
+            }
+        }
+        if (responseJson == null) {
+            log.error("FAL.ai 이미지 API 최종 실패: {}", lastException.getMessage());
+            throw new RuntimeException("FAL.ai 이미지 생성에 실패했습니다: " + lastException.getMessage(), lastException);
         }
 
         // 응답에서 images[0].url 추출
