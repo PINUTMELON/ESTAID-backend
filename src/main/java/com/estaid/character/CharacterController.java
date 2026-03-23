@@ -53,20 +53,11 @@ public class CharacterController {
         return ResponseEntity.ok(ApiResponse.ok(characterService.findById(characterId)));
     }
 
-    /**
-     * 캐릭터 생성
-     *
-     * @param projectId 소속 프로젝트 UUID (경로 변수)
-     * @param request   생성 요청 바디 (projectId, name 필수)
-     * @return 201 Created + 생성된 캐릭터 정보
+    /*
+     * 캐릭터 생성 (JSON 방식) - AssetController의 통합 생성 API로 대체됨
+     * POST /api/projects/{projectId}/{assetType} (Multipart) 사용
+     * 해당 엔드포인트와 경로 충돌 방지를 위해 비활성화
      */
-    @PostMapping
-    public ResponseEntity<ApiResponse<CharacterResponse>> create(
-            @PathVariable String projectId,
-            @Valid @RequestBody CharacterRequest request) {
-        CharacterResponse response = characterService.create(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("캐릭터가 생성되었습니다.", response));
-    }
 
     /**
      * 캐릭터 수정
