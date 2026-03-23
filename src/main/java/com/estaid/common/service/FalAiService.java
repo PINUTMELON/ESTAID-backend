@@ -179,6 +179,8 @@ public class FalAiService {
 
         try {
             // 2. FAL.ai 큐에 영상 생성 작업 제출
+            log.info("영상 생성 FAL.ai 제출: videoId={}, firstFrameUrl={}, lastFrameUrl={}",
+                    videoId, firstFrameUrl, lastFrameUrl);
             String requestId = submitVideoJob(firstFrameUrl, lastFrameUrl, prompt);
             log.info("영상 생성 큐 제출 완료: videoId={}, requestId={}", videoId, requestId);
 
@@ -419,7 +421,8 @@ public class FalAiService {
                 continue;
             }
 
-            log.debug("FAL.ai 영상 생성 상태: requestId={}, status={}, attempt={}", requestId, status, attempt + 1);
+            log.info("FAL.ai 영상 생성 상태: requestId={}, status={}, attempt={}, raw={}",
+                    requestId, status, attempt + 1, statusJson);
 
             if ("COMPLETED".equals(status)) {
                 // 결과 조회
@@ -448,6 +451,14 @@ public class FalAiService {
             responseJson = falWebClient.get()
                     .uri(resultUrl)
                     .retrieve()
+                    .onStatus(status -> status.isError(),
+                            response -> response.bodyToMono(String.class)
+                                    .flatMap(body -> {
+                                        log.error("FAL.ai 영상 결과 조회 오류 응답: status={}, body={}",
+                                                response.statusCode(), body);
+                                        return Mono.error(new RuntimeException(
+                                                "FAL.ai 영상 결과 오류 " + response.statusCode() + ": " + body));
+                                    }))
                     .bodyToMono(String.class)
                     .timeout(Duration.ofSeconds(30))
                     .block();
