@@ -1,6 +1,9 @@
 package com.estaid.content.service;
 
+import com.estaid.asset.Asset;
+import com.estaid.asset.AssetRepository;
 import com.estaid.common.exception.BusinessException;
+import com.estaid.content.dto.AssetItemResponse;
 import com.estaid.content.dto.GalleryItemResponse;
 import com.estaid.content.dto.ImagePromptResponse;
 import com.estaid.content.dto.PlotBackgroundResponse;
@@ -14,7 +17,9 @@ import com.estaid.content.dto.ProjectScenesResponse;
 import com.estaid.content.dto.SceneImageItemResponse;
 import com.estaid.content.dto.SceneImagesResponse;
 import com.estaid.content.dto.SceneVideoResponse;
+import com.estaid.content.dto.VideoPageInitResponse;
 import com.estaid.content.dto.VideoPromptResponse;
+import com.estaid.content.dto.VideoSceneInfoResponse;
 import com.estaid.content.dto.VideoUrlResponse;
 import com.estaid.content.entity.BackgroundEntity;
 import com.estaid.content.entity.CharacterEntity;
@@ -24,11 +29,14 @@ import com.estaid.content.entity.ProjectEntity;
 import com.estaid.content.entity.VideoEntity;
 import com.estaid.content.repository.BackgroundRepository;
 import com.estaid.content.repository.CharacterRepository;
-import com.estaid.content.repository.ImageRepository;   
+import com.estaid.content.repository.ImageRepository;
 import com.estaid.content.repository.PlotRepository;
 import com.estaid.content.repository.ProjectRepository;
 import com.estaid.content.repository.VideoRepository;
+import com.estaid.plot.dto.SceneDto;
 import com.estaid.user.UserRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -36,15 +44,32 @@ import java.util.List;
 import java.util.Optional;
 import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 콘텐츠 조회 서비스
+ *
+ * <p>프로젝트·씬·이미지·영상·갤러리 등 조회 전용 로직을 담당한다.
+ * 모든 메서드는 읽기 전용 트랜잭션({@code @Transactional(readOnly = true)})으로 실행된다.</p>
+ *
+ * <p>주요 기능:</p>
+ * <ul>
+ *   <li>{@link #getProjectDetail}   - 프로젝트 상세 (씬 목록 + 에셋 목록)</li>
+ *   <li>{@link #getVideoPageInfo}   - 영상 페이지 초기 정보 (씬별 프레임 URL + 통합 프롬프트)</li>
+ *   <li>{@link #getGallery}         - 공개 갤러리 조회</li>
+ *   <li>{@link #getProjectRanking}  - 프로젝트 랭킹</li>
+ * </ul>
+ */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ContentQueryService {
 
+    /** 씬 단위 영상 타입 문자열 (videos.video_type 컬럼 값) */
     private static final String VIDEO_TYPE_SCENE = "SCENE";
 
     private final ProjectRepository projectRepository;
@@ -54,6 +79,12 @@ public class ContentQueryService {
     private final CharacterRepository characterRepository;
     private final BackgroundRepository backgroundRepository;
     private final UserRepository userRepository;
+
+    /** 에셋 Repository (캐릭터·배경 이미지 조회용) */
+    private final AssetRepository assetRepository;
+
+    /** JSON 역직렬화 (scenesJson → List&lt;SceneDto&gt;) */
+    private final ObjectMapper objectMapper;
 
     public List<GalleryItemResponse> getGallery(String currentUserId) {
         List<ProjectEntity> projects = projectRepository.findByUserIdNotOrderByCreatedAtDesc(currentUserId);
@@ -123,16 +154,60 @@ public class ContentQueryService {
         return rankings;
     }
 
+    /**
+     * 프로젝트 상세 조회
+     *
+     * <p>프로젝트에 속한 플롯의 씬 목록과 에셋 목록을 포함하여 반환한다.</p>
+     *
+     * <p>씬 정보 보강:</p>
+     * <ul>
+     *   <li>sceneTitle  — scenesJson에서 파싱하여 추가</li>
+     *   <li>thumbnail   — SceneDto.firstFrameImageUrl → Image 테이블 FIRST 프레임 순으로 탐색</li>
+     * </ul>
+     *
+     * @param projectId 프로젝트 UUID
+     * @param userId    요청자 사용자 UUID (소유권 검증)
+     * @return 프로젝트 상세 응답 (씬 목록 + 에셋 목록)
+     * @throws BusinessException 프로젝트 미존재(404) 또는 소유권 불일치(404) 시
+     */
     public ProjectDetailResponse getProjectDetail(String projectId, String userId) {
         ProjectEntity project = findOwnedProjectOrThrow(projectId, userId);
         List<ProjectSceneDetailResponse> scenes = new ArrayList<>();
 
         for (PlotEntity plot : plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId)) {
+            // scenesJson 파싱 → sceneNumber별 title/firstFrameImageUrl 추출용 맵
+            List<SceneDto> sceneDtos = parseScenes(plot.getScenesJson());
+
             for (Integer sceneNumber : sceneNumbersForPlot(plot.getPlotId())) {
+                // SceneDto에서 해당 씬의 title과 thumbnail 탐색
+                SceneDto matchedDto = sceneDtos.stream()
+                        .filter(dto -> dto.getSceneNumber() == sceneNumber)
+                        .findFirst()
+                        .orElse(null);
+
+                // sceneTitle: SceneDto.title 사용 (없으면 null)
+                String sceneTitle = matchedDto != null ? matchedDto.getTitle() : null;
+
+                // thumbnail: SceneDto.firstFrameImageUrl → Image 테이블 FIRST 프레임
+                String thumbnail = matchedDto != null ? matchedDto.getFirstFrameImageUrl() : null;
+                if (thumbnail == null) {
+                    // SceneDto에 없으면 Image 테이블에서 FIRST 프레임 탐색
+                    thumbnail = imageRepository.findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
+                                    plot.getPlotId(), sceneNumber)
+                            .stream()
+                            .filter(img -> "FIRST".equals(img.getFrameType()))
+                            .map(ImageEntity::getImageUrl)
+                            .filter(url -> url != null && !url.isBlank())
+                            .findFirst()
+                            .orElse(null);
+                }
+
                 scenes.add(new ProjectSceneDetailResponse(
                         plot.getPlotId(),
                         plot.getTitle(),
                         sceneNumber,
+                        sceneTitle,
+                        thumbnail,
                         toSceneImageItems(plot.getPlotId(), sceneNumber),
                         findSceneVideo(plot.getPlotId(), sceneNumber)
                                 .map(this::toSceneVideoResponse)
@@ -140,13 +215,135 @@ public class ContentQueryService {
             }
         }
 
+        // 에셋 목록 조회 (캐릭터·배경 이미지, 생성 시각 오름차순)
+        List<AssetItemResponse> assets = assetRepository
+                .findByProject_ProjectIdOrderByCreatedAtAsc(projectId)
+                .stream()
+                .map(asset -> new AssetItemResponse(
+                        asset.getAssetId(),
+                        asset.getType() != null ? asset.getType().name() : null,
+                        asset.getImageUrl(),
+                        asset.getPrompt()))
+                .toList();
+
         return new ProjectDetailResponse(
                 project.getProjectId(),
                 project.getTitle(),
                 project.getBackgroundImageUrl(),
                 project.getCreatedAt(),
                 project.getUpdatedAt(),
-                scenes);
+                scenes,
+                assets);
+    }
+
+    /**
+     * 영상 페이지 초기 정보 조회
+     *
+     * <p>영상 생성 페이지 진입 시 해당 프로젝트의 씬별 프레임 이미지 URL과
+     * 통합 영상 프롬프트를 반환한다.</p>
+     *
+     * <p>정보 탐색 우선순위:</p>
+     * <ul>
+     *   <li>firstFrameUrl  — SceneDto.firstFrameImageUrl → Image 테이블 FIRST 프레임</li>
+     *   <li>lastFrameUrl   — SceneDto.lastFrameImageUrl  → Image 테이블 LAST  프레임</li>
+     *   <li>combinedPrompt — Video.videoPrompt (기존 영상이 있으면) → firstFramePrompt + lastFramePrompt</li>
+     * </ul>
+     *
+     * @param projectId 프로젝트 UUID
+     * @param userId    요청자 사용자 UUID (소유권 검증)
+     * @return 영상 페이지 초기 정보 (씬 번호 오름차순)
+     * @throws BusinessException 프로젝트 미존재(404) 또는 소유권 불일치(404) 시
+     */
+    public VideoPageInitResponse getVideoPageInfo(String projectId, String userId) {
+        findOwnedProjectOrThrow(projectId, userId);
+
+        List<VideoSceneInfoResponse> sceneInfos = new ArrayList<>();
+
+        for (PlotEntity plot : plotRepository.findByProjectIdOrderByCreatedAtAsc(projectId)) {
+            List<SceneDto> sceneDtos = parseScenes(plot.getScenesJson());
+
+            // scenesJson에 씬이 있으면 SceneDto 기반으로 구성
+            if (!sceneDtos.isEmpty()) {
+                for (SceneDto dto : sceneDtos) {
+                    // ── firstFrameUrl ────────────────────────────────
+                    String firstFrameUrl = dto.getFirstFrameImageUrl();
+                    if (firstFrameUrl == null) {
+                        // Image 테이블 FIRST 프레임으로 폴백
+                        firstFrameUrl = imageRepository
+                                .findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
+                                        plot.getPlotId(), dto.getSceneNumber())
+                                .stream()
+                                .filter(img -> "FIRST".equals(img.getFrameType()))
+                                .map(ImageEntity::getImageUrl)
+                                .filter(url -> url != null && !url.isBlank())
+                                .findFirst()
+                                .orElse(null);
+                    }
+
+                    // ── lastFrameUrl ─────────────────────────────────
+                    String lastFrameUrl = dto.getLastFrameImageUrl();
+                    if (lastFrameUrl == null) {
+                        // Image 테이블 LAST 프레임으로 폴백
+                        lastFrameUrl = imageRepository
+                                .findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
+                                        plot.getPlotId(), dto.getSceneNumber())
+                                .stream()
+                                .filter(img -> "LAST".equals(img.getFrameType()))
+                                .map(ImageEntity::getImageUrl)
+                                .filter(url -> url != null && !url.isBlank())
+                                .findFirst()
+                                .orElse(null);
+                    }
+
+                    // ── combinedPrompt ────────────────────────────────
+                    // 기존 Video.videoPrompt가 있으면 우선 사용, 없으면 프레임 프롬프트 합산
+                    String combinedPrompt = findSceneVideo(plot.getPlotId(), dto.getSceneNumber())
+                            .map(VideoEntity::getVideoPrompt)
+                            .filter(p -> p != null && !p.isBlank())
+                            .orElseGet(() -> buildCombinedPrompt(
+                                    dto.getFirstFramePrompt(), dto.getLastFramePrompt()));
+
+                    sceneInfos.add(new VideoSceneInfoResponse(
+                            dto.getSceneNumber(),
+                            dto.getTitle(),
+                            firstFrameUrl,
+                            lastFrameUrl,
+                            combinedPrompt));
+                }
+            } else {
+                // scenesJson이 없으면 Image 테이블 기반으로 구성 (하위 호환)
+                for (Integer sceneNumber : sceneNumbersForPlot(plot.getPlotId())) {
+                    List<ImageEntity> images = imageRepository
+                            .findByPlotIdAndSceneNumberOrderByFrameTypeAsc(
+                                    plot.getPlotId(), sceneNumber);
+
+                    String firstFrameUrl = images.stream()
+                            .filter(img -> "FIRST".equals(img.getFrameType()))
+                            .map(ImageEntity::getImageUrl)
+                            .filter(url -> url != null && !url.isBlank())
+                            .findFirst().orElse(null);
+
+                    String lastFrameUrl = images.stream()
+                            .filter(img -> "LAST".equals(img.getFrameType()))
+                            .map(ImageEntity::getImageUrl)
+                            .filter(url -> url != null && !url.isBlank())
+                            .findFirst().orElse(null);
+
+                    String combinedPrompt = findSceneVideo(plot.getPlotId(), sceneNumber)
+                            .map(VideoEntity::getVideoPrompt)
+                            .orElse(null);
+
+                    sceneInfos.add(new VideoSceneInfoResponse(
+                            sceneNumber, null, firstFrameUrl, lastFrameUrl, combinedPrompt));
+                }
+            }
+        }
+
+        // 씬 번호 오름차순 정렬
+        sceneInfos.sort(Comparator.comparing(VideoSceneInfoResponse::sceneNumber,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+
+        return new VideoPageInitResponse(projectId, sceneInfos);
     }
 
     public ProjectInfoResponse getProjectInfo(String projectId, String userId) {
@@ -320,5 +517,46 @@ public class ContentQueryService {
                 video.getVideoUrl(),
                 video.getStatus(),
                 video.getCreatedAt());
+    }
+
+    /**
+     * PlotEntity.scenesJson(JSON 문자열)을 SceneDto 목록으로 역직렬화한다.
+     *
+     * <p>scenesJson이 null이거나 비어 있으면 빈 리스트를 반환한다.
+     * 역직렬화 실패 시 경고 로그를 남기고 빈 리스트를 반환한다.</p>
+     *
+     * @param scenesJson JSON 배열 문자열 (null 허용)
+     * @return 씬 DTO 목록 (빈 리스트 가능)
+     */
+    private List<SceneDto> parseScenes(String scenesJson) {
+        if (scenesJson == null || scenesJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(scenesJson, new TypeReference<List<SceneDto>>() {});
+        } catch (Exception e) {
+            log.warn("scenesJson 파싱 실패 (빈 리스트 반환): {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 첫 프레임 프롬프트와 마지막 프레임 프롬프트를 합산하여 통합 프롬프트를 구성한다.
+     *
+     * @param firstFramePrompt 첫 프레임 이미지 생성 프롬프트 (null 허용)
+     * @param lastFramePrompt  마지막 프레임 이미지 생성 프롬프트 (null 허용)
+     * @return 합산 프롬프트 (양쪽 모두 null이면 null)
+     */
+    private String buildCombinedPrompt(String firstFramePrompt, String lastFramePrompt) {
+        if (firstFramePrompt == null && lastFramePrompt == null) {
+            return null;
+        }
+        if (firstFramePrompt == null) {
+            return lastFramePrompt;
+        }
+        if (lastFramePrompt == null) {
+            return firstFramePrompt;
+        }
+        return firstFramePrompt + " " + lastFramePrompt;
     }
 }

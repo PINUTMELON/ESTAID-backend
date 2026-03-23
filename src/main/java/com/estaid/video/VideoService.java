@@ -62,41 +62,85 @@ public class VideoService {
      * <p>영상 엔티티를 즉시 PENDING 상태로 저장하고,
      * FAL.ai API 호출은 비동기(@Async)로 처리한다.</p>
      *
-     * @param request 영상 생성 요청 DTO (plotId, sceneNumber, firstImageId, lastImageId)
-     * @return 생성된 Video 응답 DTO (status=PENDING)
-     * @throws BusinessException 플롯·씬·이미지 미존재(404), 이미지 미완성(400) 시
+     * <p>두 가지 방식을 지원한다:</p>
+     * <ul>
+     *   <li>방식 A (신규): projectId + sceneNumber + prompt → SceneDto URL 사용, 프롬프트 직접 지정</li>
+     *   <li>방식 B (기존): plotId + sceneNumber + firstImageId + lastImageId → Image 엔티티 참조</li>
+     * </ul>
+     *
+     * @param request 영상 생성 요청 DTO
+     * @return 생성된 Video 응답 DTO (status=PENDING, thumbnail 포함)
+     * @throws BusinessException 플롯·씬·이미지 미존재(404), 이미지 미완성(400),
+     *                           plotId/projectId 미제공(400) 시
      */
     @Transactional
     public VideoResponse generate(VideoGenerateRequest request) {
-        // 1. 플롯 조회
-        Plot plot = getPlotOrThrow(request.getPlotId());
+        // 1. 플롯 조회 — projectId 또는 plotId 중 하나 필수
+        Plot plot;
+        if (request.getProjectId() != null && !request.getProjectId().isBlank()) {
+            // [방식 A] projectId로 플롯 조회 (프로젝트당 1개 제한)
+            List<Plot> projectPlots = plotRepository.findByProject_ProjectId(request.getProjectId());
+            if (projectPlots.isEmpty()) {
+                throw new BusinessException(
+                        "해당 프로젝트의 플롯이 없습니다. projectId=" + request.getProjectId(),
+                        HttpStatus.NOT_FOUND);
+            }
+            plot = projectPlots.get(0); // 프로젝트당 1개 플롯
+        } else if (request.getPlotId() != null && !request.getPlotId().isBlank()) {
+            // [방식 B] plotId로 직접 조회
+            plot = getPlotOrThrow(request.getPlotId());
+        } else {
+            throw new BusinessException("projectId 또는 plotId 중 하나는 필수입니다.", HttpStatus.BAD_REQUEST);
+        }
 
-        // 2. 첫/마지막 프레임 이미지 조회 및 COMPLETED 검증
-        Image firstImage = getCompletedImageOrThrow(request.getFirstImageId(), "첫 프레임");
-        Image lastImage = getCompletedImageOrThrow(request.getLastImageId(), "마지막 프레임");
-
-        // 3. 씬 목록 역직렬화 → 해당 씬 추출
-        List<SceneDto> scenes = deserializeScenes(plot.getScenesJson());
-        SceneDto scene = scenes.stream()
+        // 2. 씬 목록 역직렬화 → 해당 씬 추출
+        List<SceneDto> sceneList = deserializeScenes(plot.getScenesJson());
+        SceneDto scene = sceneList.stream()
                 .filter(s -> s.getSceneNumber() == request.getSceneNumber())
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(
                         "씬 번호를 찾을 수 없습니다. sceneNumber=" + request.getSceneNumber(),
                         HttpStatus.NOT_FOUND));
 
-        // 4. Claude API → 영상 프롬프트 자동 생성
-        String videoPrompt;
-        try {
-            videoPrompt = claudeService.generateVideoPrompt(scene, plot.getArtStyle());
-        } catch (Exception e) {
-            log.warn("Claude 영상 프롬프트 생성 실패, 기본 프롬프트 사용: {}", e.getMessage());
-            // 실패 시 씬의 mainStory를 기본 프롬프트로 사용
-            videoPrompt = buildFallbackPrompt(scene, plot.getArtStyle());
+        // 3. 프레임 이미지 URL + Image 엔티티 결정
+        String firstFrameUrl;
+        String lastFrameUrl;
+        Image firstImage = null;
+        Image lastImage = null;
+
+        if (request.getFirstImageId() != null && !request.getFirstImageId().isBlank()) {
+            // [방식 B] Image 엔티티 조회 및 COMPLETED 검증
+            firstImage = getCompletedImageOrThrow(request.getFirstImageId(), "첫 프레임");
+            lastImage = getCompletedImageOrThrow(request.getLastImageId(), "마지막 프레임");
+            firstFrameUrl = firstImage.getImageUrl();
+            lastFrameUrl = lastImage.getImageUrl();
+        } else {
+            // [방식 A] SceneDto에서 URL 직접 추출
+            firstFrameUrl = scene.getFirstFrameImageUrl();
+            lastFrameUrl = scene.getLastFrameImageUrl();
+            if (firstFrameUrl == null || lastFrameUrl == null) {
+                throw new BusinessException(
+                        "첫/마지막 프레임 이미지가 아직 생성되지 않았습니다. "
+                        + "POST /api/projects/plots/frames/regenerate 로 먼저 프레임 이미지를 생성하세요.",
+                        HttpStatus.BAD_REQUEST);
+            }
         }
 
-        // 이미지 URL 추출 (LAZY 로딩 - 트랜잭션 내에서 접근)
-        String firstFrameUrl = firstImage.getImageUrl();
-        String lastFrameUrl = lastImage.getImageUrl();
+        // 4. 영상 프롬프트 결정
+        String videoPrompt;
+        if (request.getPrompt() != null && !request.getPrompt().isBlank()) {
+            // [방식 A] 사용자가 직접 제공한 프롬프트 사용
+            videoPrompt = request.getPrompt();
+            log.info("사용자 지정 영상 프롬프트 사용: sceneNumber={}", request.getSceneNumber());
+        } else {
+            // [방식 B] Claude API → 영상 프롬프트 자동 생성
+            try {
+                videoPrompt = claudeService.generateVideoPrompt(scene, plot.getArtStyle());
+            } catch (Exception e) {
+                log.warn("Claude 영상 프롬프트 생성 실패, 기본 프롬프트 사용: {}", e.getMessage());
+                videoPrompt = buildFallbackPrompt(scene, plot.getArtStyle());
+            }
+        }
 
         // 5. Video 엔티티 저장 (status=PENDING)
         Video video = Video.builder()
@@ -104,19 +148,22 @@ public class VideoService {
                 .sceneNumber(request.getSceneNumber())
                 .videoType(Video.VideoType.SCENE)
                 .videoPrompt(videoPrompt)
-                .firstImage(firstImage)
-                .lastImage(lastImage)
+                .firstImage(firstImage)   // 방식 A에서는 null
+                .lastImage(lastImage)     // 방식 A에서는 null
                 .status(Video.GenerationStatus.PENDING)
                 .build();
         Video saved = videoRepository.save(video);
         log.info("영상 엔티티 저장 완료: videoId={}, plotId={}, sceneNumber={}",
-                saved.getVideoId(), request.getPlotId(), request.getSceneNumber());
+                saved.getVideoId(), plot.getPlotId(), request.getSceneNumber());
 
         // 6. 비동기 FAL.ai 큐 제출 (@Async - 즉시 반환, 별도 스레드에서 처리)
         falAiService.processVideoGeneration(
                 saved.getVideoId(), firstFrameUrl, lastFrameUrl, videoPrompt);
 
-        return VideoResponse.from(saved);
+        // 7. 썸네일 = 씬의 첫 프레임 이미지 URL (Video 엔티티에 별도 컬럼 없음)
+        String thumbnail = firstFrameUrl;
+
+        return VideoResponse.from(saved, thumbnail);
     }
 
     /**
@@ -211,9 +258,19 @@ public class VideoService {
      * @param artStyle 화풍 설정 (null 허용)
      * @return 기본 영상 프롬프트
      */
+    /**
+     * Claude 프롬프트 생성 실패 시 사용하는 기본(폴백) 영상 프롬프트를 구성한다.
+     * 씬의 majorStory, composition, lighting, artStyle을 조합하여 영어 프롬프트를 반환한다.
+     *
+     * @param scene    씬 DTO
+     * @param artStyle 화풍 설정 (null 허용)
+     * @return 기본 영상 프롬프트
+     */
     private String buildFallbackPrompt(SceneDto scene, String artStyle) {
         StringBuilder sb = new StringBuilder();
-        sb.append(scene.getMainStory());
+        // majorStory가 있으면 사용, 없으면 빈 문자열로 시작
+        String story = scene.getMajorStory() != null ? scene.getMajorStory() : "";
+        sb.append(story);
         if (scene.getComposition() != null && !scene.getComposition().isBlank()) {
             sb.append(", ").append(scene.getComposition());
         }
