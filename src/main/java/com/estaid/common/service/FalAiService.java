@@ -344,7 +344,7 @@ public class FalAiService {
         requestBody.put("end_image_url", lastFrameUrl);
         requestBody.put("prompt", prompt);
         requestBody.put("resolution", "720p");
-        requestBody.put("num_inference_steps", 50);
+        requestBody.put("num_inference_steps", 40); // Wan FLF2V 최대값 40
 
         log.debug("FAL.ai 영상 생성 큐 제출: firstFrame={}, lastFrame={}", firstFrameUrl, lastFrameUrl);
 
