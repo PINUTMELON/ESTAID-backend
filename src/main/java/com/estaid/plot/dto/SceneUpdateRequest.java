@@ -27,21 +27,34 @@ public class SceneUpdateRequest {
     /** 등장인물 (예: "주인공 단독", "주인공, 괴물") */
     private String characters;
 
-    /** 카메라 구도 (예: "low angle shot", "wide cinematic shot") */
+    /**
+     * 카메라 구도 — Enum 10가지 값 중 하나.
+     * EXTREME_CLOSEUP / HIGH_ANGLE / LOW_ANGLE / MEDIUM_SHOT / OVER_THE_SHOULDER /
+     * TWO_SHOT / WIDE_SHOT / BIRD_EYE_VIEW / CLOSEUP / DUTCH_ANGLE
+     */
     private String composition;
 
-    /** 배경 묘사 (예: "벚꽃 공원, 봄날 오후") */
+    /** 배경 장소 이름 (1~3단어, 예: "벚꽃 공원") */
     private String background;
+
+    /** 배경 상세 묘사 (영어, 이미지 생성 프롬프트용) */
+    private String backgroundDetail;
 
     /** 조명·분위기 (예: "오후 햇살, 따뜻한 오렌지 톤") */
     private String lighting;
 
-    /** 수정된 주요 스토리 (2~3문장) */
-    private String mainStory;
+    /** 씬에 대한 구체적 설명/사건 (2~3문장, 기존 mainStory 대체) */
+    private String majorStory;
 
     /** 수정된 첫 프레임 영어 이미지 생성 프롬프트 */
     private String firstFramePrompt;
 
+    /** 수정된 첫 프레임 이미지 URL (재생성 후 업데이트) */
+    private String firstFrameImageUrl;
+
     /** 수정된 마지막 프레임 영어 이미지 생성 프롬프트 */
     private String lastFramePrompt;
+
+    /** 수정된 마지막 프레임 이미지 URL (재생성 후 업데이트) */
+    private String lastFrameImageUrl;
 }
