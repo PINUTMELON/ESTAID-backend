@@ -166,15 +166,37 @@ public class ContentQueryService {
             return List.of();
         }
 
-        // 배치 조회: 모든 유저를 한번에 가져온다 (프로젝트 수만큼 개별 조회 → 1회 배치 조회)
+        // 배치 조회: 유저, 플롯, 이미지를 한번에 가져온다
         List<String> userIds = projects.stream().map(ProjectEntity::getUserId).distinct().toList();
         Map<String, String> usernameMap = userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(com.estaid.user.User::getUserId, com.estaid.user.User::getUsername));
+
+        List<String> projectIds = projects.stream().map(ProjectEntity::getProjectId).toList();
+        List<PlotEntity> allPlots = plotRepository.findByProjectIdInOrderByCreatedAtAsc(projectIds);
+        // 프로젝트별 첫 번째 플롯만 추출 (대표 썸네일용)
+        Map<String, PlotEntity> firstPlotByProject = new LinkedHashMap<>();
+        for (PlotEntity plot : allPlots) {
+            firstPlotByProject.putIfAbsent(plot.getProjectId(), plot);
+        }
+
+        // 첫 플롯들의 이미지를 배치 조회
+        List<String> firstPlotIds = firstPlotByProject.values().stream()
+                .map(PlotEntity::getPlotId).toList();
+        Map<String, List<ImageEntity>> imagesByPlotScene = firstPlotIds.isEmpty() ? Map.of()
+                : imageRepository.findByPlotIdInOrderByPlotIdAscSceneNumberAscFrameTypeAsc(firstPlotIds).stream()
+                        .collect(Collectors.groupingBy(img -> img.getPlotId() + ":" + img.getSceneNumber()));
 
         List<ProjectRankingResponse> rankings = new ArrayList<>();
         int rank = 1;
         for (ProjectEntity project : projects) {
             String ownerUsername = usernameMap.getOrDefault(project.getUserId(), project.getUserId());
+
+            // 대표 썸네일: 첫 플롯의 첫 씬 FIRST 프레임 이미지
+            String thumbnailImageUrl = null;
+            PlotEntity firstPlot = firstPlotByProject.get(project.getProjectId());
+            if (firstPlot != null) {
+                thumbnailImageUrl = findFirstThumbnail(firstPlot, imagesByPlotScene);
+            }
 
             rankings.add(new ProjectRankingResponse(
                     rank++,
@@ -182,6 +204,7 @@ public class ContentQueryService {
                     project.getTitle(),
                     ownerUsername,
                     project.getBackgroundImageUrl(),
+                    thumbnailImageUrl,
                     project.getAverageRating(),
                     project.getRatingCount(),
                     project.getCreatedAt()));
@@ -621,6 +644,51 @@ public class ContentQueryService {
             return firstFramePrompt;
         }
         return firstFramePrompt + " " + lastFramePrompt;
+    }
+
+    /**
+     * 플롯의 대표 썸네일 이미지 URL을 찾는다.
+     *
+     * <p>탐색 우선순위:</p>
+     * <ol>
+     *   <li>scenesJson의 firstFrameImageUrl (가장 빠름, DB 조회 없음)</li>
+     *   <li>프리페치된 이미지 맵에서 첫 씬의 FIRST 프레임</li>
+     *   <li>프리페치된 이미지 중 URL이 있는 아무 이미지</li>
+     * </ol>
+     *
+     * @param plot              대상 플롯 엔티티
+     * @param imagesByPlotScene 프리페치된 이미지 맵 (plotId:sceneNumber → ImageEntity 목록)
+     * @return 썸네일 이미지 URL (없으면 null)
+     */
+    private String findFirstThumbnail(PlotEntity plot, Map<String, List<ImageEntity>> imagesByPlotScene) {
+        // 1순위: scenesJson의 firstFrameImageUrl
+        List<SceneDto> scenes = plot.getParsedScenes(objectMapper);
+        if (!scenes.isEmpty()) {
+            String url = scenes.get(0).getFirstFrameImageUrl();
+            if (url != null && !url.isBlank()) {
+                return url;
+            }
+        }
+
+        // 2순위: 프리페치된 이미지에서 첫 씬 FIRST 프레임
+        String prefix = plot.getPlotId() + ":";
+        for (Map.Entry<String, List<ImageEntity>> entry : imagesByPlotScene.entrySet()) {
+            if (entry.getKey().startsWith(prefix)) {
+                for (ImageEntity img : entry.getValue()) {
+                    if ("FIRST".equals(img.getFrameType())
+                            && img.getImageUrl() != null && !img.getImageUrl().isBlank()) {
+                        return img.getImageUrl();
+                    }
+                }
+                // FIRST가 없으면 아무 이미지라도 반환
+                for (ImageEntity img : entry.getValue()) {
+                    if (img.getImageUrl() != null && !img.getImageUrl().isBlank()) {
+                        return img.getImageUrl();
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     // ── 배치 조회 헬퍼 메서드 (N+1 방지) ──────────────────────────
