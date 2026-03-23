@@ -1,4 +1,10 @@
 spring:
+  servlet:
+    multipart:
+      # 파일 업로드 크기 제한 (기본 1MB → 20MB로 증가)
+      max-file-size: 20MB
+      max-request-size: 25MB
+
   datasource:
     url: ${SUPABASE_DB_URL}
     username: ${SUPABASE_DB_USERNAME}
