@@ -337,9 +337,10 @@ public class FalAiService {
      * @throws RuntimeException 제출 실패 시
      */
     private String submitVideoJob(String firstFrameUrl, String lastFrameUrl, String prompt) {
+        // FAL.ai Wan 2.1 FLF2V 필드명: start_image_url / end_image_url
         Map<String, Object> requestBody = Map.of(
-                "first_frame_image_url", firstFrameUrl,
-                "last_frame_image_url", lastFrameUrl,
+                "start_image_url", firstFrameUrl,
+                "end_image_url", lastFrameUrl,
                 "prompt", prompt
         );
 
