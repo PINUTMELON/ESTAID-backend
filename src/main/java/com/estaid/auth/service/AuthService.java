@@ -35,7 +35,7 @@ public class AuthService {
             throw new BusinessException("관리자 계정 정보가 올바르지 않습니다.", HttpStatus.UNAUTHORIZED);
         }
 
-        User adminUser = userRepository.findByUsername(adminUsername)
+        User adminUser = userRepository.findFirstByUsername(adminUsername)
                 .orElseThrow(() -> new BusinessException(
                         "로그인할 관리자 사용자 정보가 users 테이블에 없습니다.",
                         HttpStatus.UNAUTHORIZED));
