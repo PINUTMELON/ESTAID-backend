@@ -338,11 +338,13 @@ public class FalAiService {
      */
     private String submitVideoJob(String firstFrameUrl, String lastFrameUrl, String prompt) {
         // FAL.ai Wan 2.1 FLF2V 필드명: start_image_url / end_image_url
-        Map<String, Object> requestBody = Map.of(
-                "start_image_url", firstFrameUrl,
-                "end_image_url", lastFrameUrl,
-                "prompt", prompt
-        );
+        // resolution: 720p, num_inference_steps: 50 → 영상 품질 향상
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("start_image_url", firstFrameUrl);
+        requestBody.put("end_image_url", lastFrameUrl);
+        requestBody.put("prompt", prompt);
+        requestBody.put("resolution", "720p");
+        requestBody.put("num_inference_steps", 50);
 
         log.debug("FAL.ai 영상 생성 큐 제출: firstFrame={}, lastFrame={}", firstFrameUrl, lastFrameUrl);
 
