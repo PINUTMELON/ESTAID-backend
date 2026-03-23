@@ -26,7 +26,7 @@ server:
 # CORS 허용 Origin
 app:
   cors:
-    allowed-origins: http://localhost:3000,http://localhost:3001,http://localhost:8081,http://3.39.95.111:3000,http://3.39.95.111:3001,https://estaid-frontend.vercel.app
+    allowed-origins: http://localhost:3000,http://localhost:3001,http://localhost:8081,http://3.39.95.111:3000,http://3.39.95.111:3001,https://estaid-frontend.vercel.app,https://clinics-lawyer-boost-issues.trycloudflare.com
   admin:
     username: ${ADMIN_USERNAME:admin}
     password: ${ADMIN_PASSWORD:admin1234}
