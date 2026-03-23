@@ -4,8 +4,13 @@ import com.estaid.character.Character;
 import com.estaid.character.CharacterRepository;
 import com.estaid.common.exception.BusinessException;
 import com.estaid.common.service.ClaudeService;
+import com.estaid.common.service.FalAiService;
+import com.estaid.plot.dto.FrameRegenerateRequest;
+import com.estaid.plot.dto.FrameRegenerateResponse;
 import com.estaid.plot.dto.PlotCreateRequest;
+import com.estaid.plot.dto.PlotGenerateRequest;
 import com.estaid.plot.dto.PlotResponse;
+import com.estaid.plot.dto.SceneBatchSaveRequest;
 import com.estaid.plot.dto.SceneDto;
 import com.estaid.plot.dto.SceneUpdateRequest;
 import com.estaid.project.Project;
@@ -44,10 +49,11 @@ public class PlotService {
     private final ProjectRepository projectRepository;
     private final CharacterRepository characterRepository;
     private final ClaudeService claudeService;
+    private final FalAiService falAiService;
     private final ObjectMapper objectMapper;
 
     /**
-     * 플롯 생성 (Claude API 씬 자동 생성 포함)
+     * 플롯 생성 (기존 API, 하위 호환 유지)
      *
      * <p>처리 흐름:</p>
      * <pre>
@@ -76,11 +82,9 @@ public class PlotService {
         // 3. Claude API 호출 → 씬 목록 생성
         int sceneCount = request.getSceneCount() != null ? request.getSceneCount() : 5;
         List<SceneDto> scenes = claudeService.generateScenes(
-                request.getTitle(),
                 request.getIdea(),
                 sceneCount,
-                request.getArtStyle(),
-                character
+                null
         );
 
         // 4. 씬 목록 JSON 직렬화
@@ -99,6 +103,146 @@ public class PlotService {
         Plot saved = plotRepository.save(plot);
         log.info("플롯 생성 완료: plotId={}, title={}, sceneCount={}", saved.getPlotId(), saved.getTitle(), scenes.size());
         return PlotResponse.from(saved, scenes);
+    }
+
+    /**
+     * AI 스토리보드 자동 생성 (신규 API)
+     *
+     * <p>프론트 요청 기반의 신규 엔드포인트용 메서드.
+     * 한 프로젝트당 1번만 생성 가능하며, 이미 플롯이 존재하면 409 Conflict를 반환한다.</p>
+     *
+     * <p>처리 흐름:</p>
+     * <pre>
+     *   1. projectId로 프로젝트 조회 (없으면 404)
+     *   2. 해당 프로젝트에 이미 플롯이 있으면 409 Conflict
+     *   3. Claude API 호출 → sceneCount개의 씬 JSON 생성
+     *      (composition Enum, majorStory, backgroundDetail 포함)
+     *   4. 씬 목록 JSON 직렬화 후 Plot 저장
+     *   5. PlotResponse 반환 (firstFrameImageUrl/lastFrameImageUrl은 null)
+     * </pre>
+     *
+     * @param request 스토리보드 생성 요청 DTO (projectId, storyDescription, sceneCount, ratio)
+     * @return 생성된 플롯 응답 DTO (씬 목록 포함, 프레임 이미지 URL은 null)
+     * @throws BusinessException 프로젝트 미존재(404), 이미 플롯 존재(409), Claude API 실패(502)
+     */
+    @Transactional
+    public PlotResponse generate(PlotGenerateRequest request) {
+        // 1. 프로젝트 조회
+        Project project = getProjectOrThrow(request.getProjectId());
+
+        // 2. 한 프로젝트당 1번 제한: 이미 플롯이 있으면 409 반환
+        List<Plot> existing = plotRepository.findByProject_ProjectId(request.getProjectId());
+        if (!existing.isEmpty()) {
+            throw new BusinessException(
+                    "이미 스토리보드가 생성된 프로젝트입니다. 프로젝트당 1번만 생성 가능합니다.",
+                    HttpStatus.CONFLICT);
+        }
+
+        // 3. Claude API 호출 → 씬 목록 생성
+        int sceneCount = request.getSceneCount() != null ? request.getSceneCount() : 4;
+        List<SceneDto> scenes = claudeService.generateScenes(
+                request.getStoryDescription(),
+                sceneCount,
+                request.getRatio()
+        );
+
+        // 4. 씬 목록 JSON 직렬화
+        String scenesJson = serializeScenes(scenes);
+
+        // 5. Plot 엔티티 저장 (title은 storyDescription의 앞 50자로 대체)
+        String title = request.getStoryDescription().length() > 50
+                ? request.getStoryDescription().substring(0, 50)
+                : request.getStoryDescription();
+
+        Plot plot = Plot.builder()
+                .project(project)
+                .title(title)
+                .idea(request.getStoryDescription())
+                .scenesJson(scenesJson)
+                .build();
+
+        Plot saved = plotRepository.save(plot);
+        log.info("스토리보드 자동 생성 완료: plotId={}, projectId={}, sceneCount={}",
+                saved.getPlotId(), request.getProjectId(), scenes.size());
+        return PlotResponse.from(saved, scenes);
+    }
+
+    /**
+     * 전체 씬 배치 저장 (다음 버튼 클릭 시 호출)
+     *
+     * <p>사용자가 씬 만들기 페이지에서 수정한 전체 씬 목록을 한 번에 저장한다.
+     * 기존 scenesJson을 요청 데이터로 완전히 교체한다.</p>
+     *
+     * @param projectId 프로젝트 UUID
+     * @param request   씬 배치 저장 요청 DTO (씬 목록)
+     * @throws BusinessException 프로젝트 미존재(404), 플롯 미존재(404)
+     */
+    @Transactional
+    public void saveScenesBatch(String projectId, SceneBatchSaveRequest request) {
+        // 1. 해당 프로젝트의 플롯 조회
+        List<Plot> plots = plotRepository.findByProject_ProjectId(projectId);
+        if (plots.isEmpty()) {
+            throw new BusinessException(
+                    "플롯을 찾을 수 없습니다. projectId=" + projectId, HttpStatus.NOT_FOUND);
+        }
+
+        // 2. 첫 번째 플롯(프로젝트당 1개)의 scenesJson을 요청 데이터로 교체
+        Plot plot = plots.get(0);
+        String scenesJson = serializeScenes(request.getScenes());
+        plot.setScenesJson(scenesJson);
+
+        log.info("씬 배치 저장 완료: plotId={}, projectId={}, sceneCount={}",
+                plot.getPlotId(), projectId, request.getScenes().size());
+    }
+
+    /**
+     * 프레임 이미지 재생성
+     *
+     * <p>씬의 첫 프레임 또는 마지막 프레임 이미지를 FAL.ai로 재생성한다.
+     * 재생성 후 SceneDto의 firstFrameImageUrl 또는 lastFrameImageUrl을 업데이트한다.</p>
+     *
+     * @param request 프레임 재생성 요청 DTO (projectId, sceneNumber, firstOrLast, prompt)
+     * @return 재생성된 이미지 URL
+     * @throws BusinessException 프로젝트·플롯·씬 미존재(404), FAL.ai 실패(502)
+     */
+    @Transactional
+    public FrameRegenerateResponse regenerateFrame(FrameRegenerateRequest request) {
+        // 1. 해당 프로젝트의 플롯 조회
+        List<Plot> plots = plotRepository.findByProject_ProjectId(request.getProjectId());
+        if (plots.isEmpty()) {
+            throw new BusinessException(
+                    "플롯을 찾을 수 없습니다. projectId=" + request.getProjectId(), HttpStatus.NOT_FOUND);
+        }
+
+        Plot plot = plots.get(0);
+
+        // 2. 씬 목록에서 해당 씬 번호 찾기
+        List<SceneDto> scenes = deserializeScenes(plot.getScenesJson());
+        SceneDto target = scenes.stream()
+                .filter(s -> s.getSceneNumber() == request.getSceneNumber())
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(
+                        "씬 번호를 찾을 수 없습니다. sceneNumber=" + request.getSceneNumber(),
+                        HttpStatus.NOT_FOUND));
+
+        // 3. FAL.ai로 이미지 재생성 (referenceImageUrl 없이 프롬프트만 사용)
+        String imageUrl = falAiService.generateImageSync(null, request.getPrompt());
+
+        // 4. 해당 프레임 URL 업데이트 후 scenesJson 저장
+        boolean isFirst = "FIRST".equalsIgnoreCase(request.getFirstOrLast());
+        if (isFirst) {
+            target.setFirstFrameImageUrl(imageUrl);
+            target.setFirstFramePrompt(request.getPrompt()); // 프롬프트도 업데이트
+        } else {
+            target.setLastFrameImageUrl(imageUrl);
+            target.setLastFramePrompt(request.getPrompt()); // 프롬프트도 업데이트
+        }
+
+        plot.setScenesJson(serializeScenes(scenes));
+        log.info("프레임 재생성 완료: plotId={}, sceneNumber={}, firstOrLast={}, imageUrl={}",
+                plot.getPlotId(), request.getSceneNumber(), request.getFirstOrLast(), imageUrl);
+
+        return new FrameRegenerateResponse(imageUrl);
     }
 
     /**
@@ -134,14 +278,17 @@ public class PlotService {
                 .orElseThrow(() -> new BusinessException(
                         "씬 번호를 찾을 수 없습니다. sceneNumber=" + sceneNumber, HttpStatus.NOT_FOUND));
 
-        // 4. 씬 내용 수정
+        // 4. 씬 내용 수정 (null인 필드도 그대로 반영되므로 클라이언트가 기존 값 포함하여 전송해야 함)
         target.setCharacters(request.getCharacters());
         target.setComposition(request.getComposition());
         target.setBackground(request.getBackground());
+        target.setBackgroundDetail(request.getBackgroundDetail());
         target.setLighting(request.getLighting());
-        target.setMainStory(request.getMainStory());
+        target.setMajorStory(request.getMajorStory());
         target.setFirstFramePrompt(request.getFirstFramePrompt());
+        target.setFirstFrameImageUrl(request.getFirstFrameImageUrl());
         target.setLastFramePrompt(request.getLastFramePrompt());
+        target.setLastFrameImageUrl(request.getLastFrameImageUrl());
 
         // 5. 재직렬화 후 저장
         plot.setScenesJson(serializeScenes(scenes));

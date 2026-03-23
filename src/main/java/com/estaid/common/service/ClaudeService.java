@@ -61,30 +61,27 @@ public class ClaudeService {
     }
 
     /**
-     * 플롯 아이디어를 기반으로 Claude API를 호출하여 씬 목록을 생성한다.
+     * 스토리 설명을 기반으로 Claude API를 호출하여 씬 목록을 생성한다.
      *
      * <p>호출 흐름:</p>
      * <pre>
-     *   1. 씬 생성 프롬프트 구성 (제목, 아이디어, 씬 수, 아트스타일, 캐릭터 정보)
+     *   1. 씬 생성 프롬프트 구성 (스토리 설명, 씬 수, 비율)
      *   2. Claude API POST /v1/messages 동기 호출
      *   3. 응답 텍스트에서 JSON 배열 추출
      *   4. List&lt;SceneDto&gt;로 역직렬화하여 반환
      * </pre>
      *
-     * @param title      플롯 제목
-     * @param idea       사용자가 입력한 스토리 아이디어
-     * @param sceneCount 생성할 씬 수 (1~10)
-     * @param artStyle   화풍 설정 (예: anime, realistic)
-     * @param character  참조 캐릭터 (null 허용 — 없으면 캐릭터 정보 제외)
+     * @param storyDescription 사용자가 입력한 전체 줄거리 텍스트
+     * @param sceneCount       생성할 씬 수 (1~10)
+     * @param ratio            영상 비율 (예: "16:9", null 허용)
      * @return Claude가 생성한 씬 목록
      * @throws BusinessException Claude API 호출 실패 또는 응답 파싱 실패 시
      */
-    public List<SceneDto> generateScenes(String title, String idea, int sceneCount,
-                                         String artStyle, Character character) {
-        log.info("Claude 씬 생성 요청: title={}, sceneCount={}, artStyle={}", title, sceneCount, artStyle);
+    public List<SceneDto> generateScenes(String storyDescription, int sceneCount, String ratio) {
+        log.info("Claude 씬 생성 요청: sceneCount={}, ratio={}", sceneCount, ratio);
 
         // 1. 프롬프트 구성
-        String userPrompt = buildScenePrompt(title, idea, sceneCount, artStyle, character);
+        String userPrompt = buildScenePrompt(storyDescription, sceneCount, ratio);
 
         // 2. Claude API 요청 바디 구성
         Map<String, Object> requestBody = Map.of(
@@ -191,24 +188,19 @@ public class ClaudeService {
 
     /**
      * 씬 생성용 사용자 프롬프트를 구성한다.
-     * 캐릭터가 있으면 이름·설명을 포함하여 씬 내 캐릭터 묘사 일관성을 높인다.
+     * storyDescription과 씬 수, 비율을 기반으로 Claude에게 전달할 프롬프트를 만든다.
+     *
+     * @param storyDescription 전체 줄거리 텍스트
+     * @param sceneCount       생성할 씬 수
+     * @param ratio            영상 비율 (null 허용)
      */
-    private String buildScenePrompt(String title, String idea, int sceneCount,
-                                    String artStyle, Character character) {
+    private String buildScenePrompt(String storyDescription, int sceneCount, String ratio) {
         StringBuilder sb = new StringBuilder();
-        sb.append("제목: ").append(title).append("\n");
-        sb.append("아이디어: ").append(idea).append("\n");
+        sb.append("줄거리: ").append(storyDescription).append("\n");
         sb.append("씬 수: ").append(sceneCount).append("개\n");
 
-        if (artStyle != null && !artStyle.isBlank()) {
-            sb.append("아트 스타일: ").append(artStyle).append("\n");
-        }
-        if (character != null) {
-            sb.append("캐릭터: ").append(character.getName());
-            if (character.getDescription() != null && !character.getDescription().isBlank()) {
-                sb.append(" - ").append(character.getDescription());
-            }
-            sb.append("\n");
+        if (ratio != null && !ratio.isBlank()) {
+            sb.append("영상 비율: ").append(ratio).append("\n");
         }
 
         sb.append("\n다음 JSON 형식으로 정확히 ").append(sceneCount).append("개의 씬을 생성해주세요.\n");
@@ -265,13 +257,19 @@ public class ClaudeService {
     /** 씬 생성 시스템 프롬프트 */
     private static final String SCENE_SYSTEM_PROMPT =
             "당신은 2차 창작 만화/영상의 스토리보드 작가입니다.\n" +
-            "사용자의 아이디어를 받아 지정된 수의 씬으로 구성된 플롯을 JSON 형식으로 생성하세요.\n" +
+            "사용자의 줄거리를 받아 지정된 수의 씬으로 구성된 스토리보드를 JSON 형식으로 생성하세요.\n" +
             "각 씬은 영상 제작에 필요한 구체적인 정보를 포함해야 합니다.\n" +
+            "composition 필드는 반드시 아래 10가지 값 중 하나만 사용하세요:\n" +
+            "EXTREME_CLOSEUP, HIGH_ANGLE, LOW_ANGLE, MEDIUM_SHOT, OVER_THE_SHOULDER, " +
+            "TWO_SHOT, WIDE_SHOT, BIRD_EYE_VIEW, CLOSEUP, DUTCH_ANGLE\n" +
             "반드시 JSON 배열만 반환하고, 다른 텍스트나 설명은 절대 포함하지 마세요.";
 
     /**
      * 영상 프롬프트 생성용 사용자 프롬프트를 구성한다.
      * 씬의 모든 시각적 정보를 포함하여 일관된 영상 프롬프트를 생성한다.
+     *
+     * @param scene    씬 정보 DTO
+     * @param artStyle 화풍 설정 (null 허용)
      */
     private String buildVideoPromptRequest(SceneDto scene, String artStyle) {
         StringBuilder sb = new StringBuilder();
@@ -282,8 +280,14 @@ public class ClaudeService {
         sb.append("등장인물: ").append(scene.getCharacters()).append("\n");
         sb.append("카메라 구도: ").append(scene.getComposition()).append("\n");
         sb.append("배경: ").append(scene.getBackground()).append("\n");
+        // backgroundDetail이 있으면 배경 상세 묘사를 추가로 전달한다
+        if (scene.getBackgroundDetail() != null && !scene.getBackgroundDetail().isBlank()) {
+            sb.append("배경 상세: ").append(scene.getBackgroundDetail()).append("\n");
+        }
         sb.append("조명/분위기: ").append(scene.getLighting()).append("\n");
-        sb.append("주요 스토리: ").append(scene.getMainStory()).append("\n");
+        // majorStory가 있으면 우선 사용, 없으면 빈 값
+        String story = scene.getMajorStory();
+        sb.append("주요 스토리: ").append(story != null ? story : "").append("\n");
         sb.append("첫 프레임 묘사: ").append(scene.getFirstFramePrompt()).append("\n");
         sb.append("마지막 프레임 묘사: ").append(scene.getLastFramePrompt()).append("\n");
         if (artStyle != null && !artStyle.isBlank()) {
@@ -300,17 +304,28 @@ public class ClaudeService {
             "반드시 영어로만 작성하고, 설명이나 부연 없이 프롬프트 텍스트만 반환하세요.\n" +
             "길이는 2~3문장으로 작성하세요.";
 
-    /** 씬 JSON 형식 예시 (Claude에게 출력 포맷 안내) */
+    /**
+     * 씬 JSON 형식 예시 (Claude에게 출력 포맷 안내)
+     *
+     * <p>주요 필드 변경 사항:</p>
+     * <ul>
+     *   <li>composition: 반드시 Enum 10가지 중 하나 (EXTREME_CLOSEUP 등)</li>
+     *   <li>background: 배경 장소 이름 (1~3단어)</li>
+     *   <li>backgroundDetail: 배경 상세 묘사 (영어, 이미지 생성용)</li>
+     *   <li>majorStory: 씬 구체적 설명 (기존 mainStory 대체)</li>
+     * </ul>
+     */
     private static final String SCENE_JSON_FORMAT =
             "[\n" +
             "  {\n" +
             "    \"sceneNumber\": 1,\n" +
             "    \"title\": \"씬 제목\",\n" +
             "    \"characters\": \"등장인물\",\n" +
-            "    \"composition\": \"카메라 구도 (예: wide shot, close-up, low angle)\",\n" +
-            "    \"background\": \"배경 묘사\",\n" +
-            "    \"lighting\": \"조명/분위기\",\n" +
-            "    \"mainStory\": \"주요 스토리 (2~3문장)\",\n" +
+            "    \"composition\": \"반드시 다음 중 하나: EXTREME_CLOSEUP, HIGH_ANGLE, LOW_ANGLE, MEDIUM_SHOT, OVER_THE_SHOULDER, TWO_SHOT, WIDE_SHOT, BIRD_EYE_VIEW, CLOSEUP, DUTCH_ANGLE\",\n" +
+            "    \"background\": \"배경 장소 이름 (1~3단어, 예: 어두운 숲)\",\n" +
+            "    \"backgroundDetail\": \"배경 상세 묘사 (영어, 이미지 생성 프롬프트용, 예: Dense pine forest with moonlight)\",\n" +
+            "    \"lighting\": \"조명/분위기 (영어 권장)\",\n" +
+            "    \"majorStory\": \"씬에 대한 구체적 설명/사건 (2~3문장)\",\n" +
             "    \"firstFramePrompt\": \"영어 이미지 생성 프롬프트 (첫 프레임)\",\n" +
             "    \"lastFramePrompt\": \"영어 이미지 생성 프롬프트 (마지막 프레임)\"\n" +
             "  }\n" +

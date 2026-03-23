@@ -48,6 +48,14 @@ public class VideoResponse {
      */
     private String videoUrl;
 
+    /**
+     * 영상 썸네일 이미지 URL
+     * Video 엔티티에는 별도 thumbnail 컬럼이 없으므로,
+     * 해당 씬의 첫 프레임 이미지 URL(SceneDto.firstFrameImageUrl)로 대체한다.
+     * null일 수 있음.
+     */
+    private String thumbnail;
+
     /** 영상 길이 (초 단위, null 가능) */
     private Integer duration;
 
@@ -61,12 +69,25 @@ public class VideoResponse {
     private OffsetDateTime createdAt;
 
     /**
-     * {@link Video} 엔티티로부터 응답 DTO를 생성하는 팩토리 메서드
+     * {@link Video} 엔티티로부터 응답 DTO를 생성하는 팩토리 메서드 (thumbnail 없음)
      *
      * @param video Video 엔티티
-     * @return VideoResponse DTO
+     * @return VideoResponse DTO (thumbnail=null)
      */
     public static VideoResponse from(Video video) {
+        return from(video, null);
+    }
+
+    /**
+     * {@link Video} 엔티티 + thumbnail URL로 응답 DTO를 생성하는 팩토리 메서드
+     *
+     * <p>썸네일은 Video 엔티티에 없으므로, 씬의 첫 프레임 이미지 URL을 전달받아 채운다.</p>
+     *
+     * @param video     Video 엔티티
+     * @param thumbnail 썸네일 이미지 URL (null 허용)
+     * @return VideoResponse DTO
+     */
+    public static VideoResponse from(Video video, String thumbnail) {
         return VideoResponse.builder()
                 .videoId(video.getVideoId())
                 .plotId(video.getPlot() != null ? video.getPlot().getPlotId() : null)
@@ -78,6 +99,7 @@ public class VideoResponse {
                 .videoUrl(video.getVideoUrl())
                 .duration(video.getDuration())
                 .status(video.getStatus())
+                .thumbnail(thumbnail)
                 .createdAt(video.getCreatedAt())
                 .build();
     }

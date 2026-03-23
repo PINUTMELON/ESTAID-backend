@@ -85,6 +85,39 @@ public class CharacterService {
     }
 
     /**
+     * 캐릭터 생성 (통합 자산 생성 API용 — 파라미터 직접 전달 방식)
+     *
+     * <p>{@link #create(CharacterRequest)}와 동일한 로직이지만,
+     * Multipart 요청에서 이미 파싱된 개별 값을 직접 받아 처리한다.
+     * AssetService 통합 생성 흐름에서 호출된다.</p>
+     *
+     * @param projectId         소속 프로젝트 UUID
+     * @param name              캐릭터 이름
+     * @param referenceImageUrl Supabase Storage에 업로드된 참조 이미지 URL
+     * @param artStyle          화풍 (예: REALISTIC, ANIME)
+     * @return 저장된 캐릭터 엔티티
+     * @throws BusinessException 프로젝트가 존재하지 않을 때 (404)
+     */
+    @Transactional
+    public Character createRaw(String projectId, String name,
+                               String referenceImageUrl, String artStyle) {
+        Project project = getProjectOrThrow(projectId);
+
+        // 캐릭터 엔티티 생성 및 저장
+        Character character = Character.builder()
+                .project(project)
+                .name(name)
+                .referenceImageUrl(referenceImageUrl)
+                .artStyle(artStyle)
+                .build();
+
+        Character saved = characterRepository.save(character);
+        log.info("캐릭터 생성 완료 (통합 API): characterId={}, name={}, projectId={}",
+                saved.getCharacterId(), name, projectId);
+        return saved;
+    }
+
+    /**
      * 캐릭터 수정
      *
      * <p>전달된 필드로 기존 값을 덮어쓴다.
