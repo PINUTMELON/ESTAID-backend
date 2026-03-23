@@ -16,6 +16,22 @@ public interface VideoRepository extends JpaRepository<VideoEntity, String> {
     Optional<VideoEntity> findTopByPlotIdAndSceneNumberAndVideoTypeOrderByCreatedAtDesc(
             String plotId, Integer sceneNumber, String videoType);
 
+    @Query(value = """
+            select v.*
+            from videos v
+            join plots p on p.plot_id = v.plot_id
+            join projects pr on pr.project_id = p.project_id
+            where pr.user_id <> :currentUserId
+              and v.video_type = :videoType
+              and v.video_url is not null
+              and trim(v.video_url) <> ''
+            order by random()
+            limit 1
+            """, nativeQuery = true)
+    Optional<VideoEntity> findRandomByVideoTypeAndProjectUserIdNot(
+            @Param("videoType") String videoType,
+            @Param("currentUserId") String currentUserId);
+
     /** 플롯에 존재하는 씬 번호 목록을 영상 기준으로 조회한다. */
     @Query("""
             select distinct v.sceneNumber
