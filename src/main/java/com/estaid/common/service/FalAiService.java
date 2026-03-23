@@ -370,8 +370,8 @@ public class FalAiService {
         requestBody.put("start_image_url", firstFrameUrl);
         requestBody.put("end_image_url", lastFrameUrl);
         requestBody.put("prompt", prompt);
-        requestBody.put("resolution", "720p");           // 480p→720p 화질 향상
-        requestBody.put("num_inference_steps", 30);       // 20→30 모션 자연스러움 향상 (기본값, 최대 40)
+        requestBody.put("resolution", "480p");            // 480p — 속도 우선 (720p 대비 ~2배 빠름)
+        requestBody.put("num_inference_steps", 20);       // 20스텝 — 속도 우선 (최대 40)
         requestBody.put("guidance_scale", 5.0);           // 프롬프트 충실도 (기본값 5, 1~10 범위)
 
         log.debug("FAL.ai 영상 생성 큐 제출: firstFrame={}, lastFrame={}", firstFrameUrl, lastFrameUrl);
