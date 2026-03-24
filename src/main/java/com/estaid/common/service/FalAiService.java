@@ -2,6 +2,8 @@ package com.estaid.common.service;
 
 import com.estaid.image.Image;
 import com.estaid.image.ImageRepository;
+import com.estaid.project.Project;
+import com.estaid.project.ProjectRepository;
 import com.estaid.video.Video;
 import com.estaid.video.VideoRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -51,6 +53,9 @@ public class FalAiService {
 
     /** 이미지 엔티티 Repository (비동기 완료 후 상태·URL 갱신용) */
     private final ImageRepository imageRepository;
+
+    /** 프로젝트 엔티티 Repository (이미지 생성 완료 시 썸네일 자동 설정용) */
+    private final ProjectRepository projectRepository;
 
     /** 영상 엔티티 Repository (비동기 완료 후 상태·URL 갱신용) */
     private final VideoRepository videoRepository;
@@ -576,6 +581,22 @@ public class FalAiService {
             image.setStatus(status);
             if (imageUrl != null) {
                 image.setImageUrl(imageUrl);
+
+                // 첫 씬의 첫 프레임 이미지 완료 시 → 프로젝트 썸네일(backgroundImageUrl) 자동 설정
+                if (status == Image.GenerationStatus.COMPLETED
+                        && image.getSceneNumber() == 1
+                        && image.getFrameType() == Image.FrameType.FIRST) {
+                    try {
+                        Project project = image.getPlot().getProject();
+                        if (project.getBackgroundImageUrl() == null || project.getBackgroundImageUrl().isBlank()) {
+                            project.setBackgroundImageUrl(imageUrl);
+                            projectRepository.save(project);
+                            log.info("프로젝트 썸네일 자동 설정: projectId={}, imageUrl={}", project.getProjectId(), imageUrl);
+                        }
+                    } catch (Exception e) {
+                        log.warn("프로젝트 썸네일 자동 설정 실패 (무시): {}", e.getMessage());
+                    }
+                }
             }
             imageRepository.save(image);
         });

@@ -253,6 +253,15 @@ public class PlotService {
         }
 
         plot.setScenesJson(serializeScenes(scenes));
+
+        // 첫 씬 FIRST 프레임 재생성 시 프로젝트 썸네일도 함께 업데이트
+        if (request.getSceneNumber() == 1 && isFirst) {
+            Project proj = plot.getProject();
+            proj.setBackgroundImageUrl(imageUrl);
+            projectRepository.save(proj);
+            log.info("프로젝트 썸네일 업데이트: projectId={}, imageUrl={}", proj.getProjectId(), imageUrl);
+        }
+
         log.info("프레임 재생성 완료: plotId={}, sceneNumber={}, firstOrLast={}, imageUrl={}",
                 plot.getPlotId(), request.getSceneNumber(), request.getFirstOrLast(), imageUrl);
 
