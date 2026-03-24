@@ -121,6 +121,11 @@ public class StorageService {
      * @param file 검증할 파일
      * @throws BusinessException 유효하지 않은 파일 시
      */
+    /** FAL.ai가 지원하는 이미지 Content-Type 목록 (AVIF, HEIC 등 미지원 포맷 차단) */
+    private static final java.util.Set<String> SUPPORTED_IMAGE_TYPES = java.util.Set.of(
+            "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"
+    );
+
     private void validateImageFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("업로드할 파일이 없습니다.", HttpStatus.BAD_REQUEST);
@@ -128,6 +133,12 @@ public class StorageService {
         String contentType = file.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
             throw new BusinessException("이미지 파일만 업로드 가능합니다. contentType=" + contentType, HttpStatus.BAD_REQUEST);
+        }
+        // FAL.ai 미지원 포맷 차단 (AVIF, HEIC 등)
+        if (!SUPPORTED_IMAGE_TYPES.contains(contentType.toLowerCase())) {
+            throw new BusinessException(
+                    "지원하지 않는 이미지 형식입니다. PNG, JPG, WebP 형식만 사용 가능합니다. (현재: " + contentType + ")",
+                    HttpStatus.BAD_REQUEST);
         }
     }
 
