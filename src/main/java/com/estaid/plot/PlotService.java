@@ -79,12 +79,16 @@ public class PlotService {
             character = getCharacterOrThrow(request.getCharacterId());
         }
 
-        // 3. Claude API 호출 → 씬 목록 생성
+        // 3. Claude API 호출 → 씬 목록 생성 (캐릭터 정보 포함)
         int sceneCount = request.getSceneCount() != null ? request.getSceneCount() : 5;
+        String characterName = character != null ? character.getName() : null;
+        String characterDescription = character != null ? character.getDescription() : null;
         List<SceneDto> scenes = claudeService.generateScenes(
                 request.getIdea(),
                 sceneCount,
-                null
+                null,
+                characterName,
+                characterDescription
         );
 
         // 4. 씬 목록 JSON 직렬화
@@ -138,18 +142,26 @@ public class PlotService {
                     HttpStatus.CONFLICT);
         }
 
-        // 3. Claude API 호출 → 씬 목록 생성
+        // 3. 프로젝트의 캐릭터 조회 (있으면 씬 프롬프트에 외형 정보 반영)
+        List<Character> characters = characterRepository.findByProject_ProjectId(request.getProjectId());
+        Character character = characters.isEmpty() ? null : characters.get(0);
+        String characterName = character != null ? character.getName() : null;
+        String characterDescription = character != null ? character.getDescription() : null;
+
+        // 4. Claude API 호출 → 씬 목록 생성 (캐릭터 정보 포함)
         int sceneCount = request.getSceneCount() != null ? request.getSceneCount() : 4;
         List<SceneDto> scenes = claudeService.generateScenes(
                 request.getStoryDescription(),
                 sceneCount,
-                request.getRatio()
+                request.getRatio(),
+                characterName,
+                characterDescription
         );
 
-        // 4. 씬 목록 JSON 직렬화
+        // 5. 씬 목록 JSON 직렬화
         String scenesJson = serializeScenes(scenes);
 
-        // 5. Plot 엔티티 저장 (title은 storyDescription의 앞 50자로 대체)
+        // 6. Plot 엔티티 저장 (title은 storyDescription의 앞 50자로 대체, 캐릭터 연결)
         String title = request.getStoryDescription().length() > 50
                 ? request.getStoryDescription().substring(0, 50)
                 : request.getStoryDescription();
@@ -158,6 +170,7 @@ public class PlotService {
                 .project(project)
                 .title(title)
                 .idea(request.getStoryDescription())
+                .character(character)
                 .scenesJson(scenesJson)
                 .build();
 

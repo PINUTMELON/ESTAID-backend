@@ -78,10 +78,29 @@ public class ClaudeService {
      * @throws BusinessException Claude API 호출 실패 또는 응답 파싱 실패 시
      */
     public List<SceneDto> generateScenes(String storyDescription, int sceneCount, String ratio) {
-        log.info("Claude 씬 생성 요청: sceneCount={}, ratio={}", sceneCount, ratio);
+        return generateScenes(storyDescription, sceneCount, ratio, null, null);
+    }
 
-        // 1. 프롬프트 구성
-        String userPrompt = buildScenePrompt(storyDescription, sceneCount, ratio);
+    /**
+     * 스토리 설명 + 캐릭터 정보를 기반으로 Claude API를 호출하여 씬 목록을 생성한다.
+     *
+     * <p>캐릭터 이름/설명이 제공되면, Claude가 firstFramePrompt/lastFramePrompt를
+     * 생성할 때 캐릭터 외형을 구체적으로 반영하도록 프롬프트에 포함한다.</p>
+     *
+     * @param storyDescription    사용자가 입력한 전체 줄거리 텍스트
+     * @param sceneCount          생성할 씬 수 (1~10)
+     * @param ratio               영상 비율 (예: "16:9", null 허용)
+     * @param characterName       캐릭터 이름 (null 허용)
+     * @param characterDescription 캐릭터 외형/특징 설명 (null 허용)
+     * @return Claude가 생성한 씬 목록
+     * @throws BusinessException Claude API 호출 실패 또는 응답 파싱 실패 시
+     */
+    public List<SceneDto> generateScenes(String storyDescription, int sceneCount, String ratio,
+                                          String characterName, String characterDescription) {
+        log.info("Claude 씬 생성 요청: sceneCount={}, ratio={}, characterName={}", sceneCount, ratio, characterName);
+
+        // 1. 프롬프트 구성 (캐릭터 정보 포함)
+        String userPrompt = buildScenePrompt(storyDescription, sceneCount, ratio, characterName, characterDescription);
 
         // 2. Claude API 요청 바디 구성
         Map<String, Object> requestBody = Map.of(
@@ -194,13 +213,34 @@ public class ClaudeService {
      * @param sceneCount       생성할 씬 수
      * @param ratio            영상 비율 (null 허용)
      */
-    private String buildScenePrompt(String storyDescription, int sceneCount, String ratio) {
+    /**
+     * 씬 생성용 사용자 프롬프트를 구성한다.
+     * storyDescription과 씬 수, 비율, 캐릭터 정보를 기반으로 Claude에게 전달할 프롬프트를 만든다.
+     *
+     * @param storyDescription    전체 줄거리 텍스트
+     * @param sceneCount          생성할 씬 수
+     * @param ratio               영상 비율 (null 허용)
+     * @param characterName       캐릭터 이름 (null 허용)
+     * @param characterDescription 캐릭터 외형/특징 설명 (null 허용)
+     */
+    private String buildScenePrompt(String storyDescription, int sceneCount, String ratio,
+                                     String characterName, String characterDescription) {
         StringBuilder sb = new StringBuilder();
         sb.append("줄거리: ").append(storyDescription).append("\n");
         sb.append("씬 수: ").append(sceneCount).append("개\n");
 
         if (ratio != null && !ratio.isBlank()) {
             sb.append("영상 비율: ").append(ratio).append("\n");
+        }
+
+        // 캐릭터 정보가 있으면 프롬프트에 포함하여 씬 프롬프트에 외형이 반영되도록 한다
+        if (characterName != null && !characterName.isBlank()) {
+            sb.append("\n[캐릭터 정보]\n");
+            sb.append("캐릭터 이름: ").append(characterName).append("\n");
+            if (characterDescription != null && !characterDescription.isBlank()) {
+                sb.append("캐릭터 외형/특징: ").append(characterDescription).append("\n");
+            }
+            sb.append("※ 위 캐릭터의 외형을 모든 씬의 firstFramePrompt/lastFramePrompt에 구체적으로 반영하세요.\n");
         }
 
         sb.append("\n다음 JSON 형식으로 정확히 ").append(sceneCount).append("개의 씬을 생성해주세요.\n");

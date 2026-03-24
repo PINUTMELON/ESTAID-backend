@@ -72,12 +72,14 @@ public class ImageService {
                         "씬 번호를 찾을 수 없습니다. sceneNumber=" + request.getSceneNumber(),
                         HttpStatus.NOT_FOUND));
 
-        // 3. frameType에 따라 프롬프트 선택 (artStyle 포함)
+        // 3. frameType에 따라 프롬프트 선택 (artStyle + 캐릭터 외형 포함)
         String basePrompt = request.getFrameType() == Image.FrameType.FIRST
                 ? scene.getFirstFramePrompt()
                 : scene.getLastFramePrompt();
         String artStyle = plot.getArtStyle();
-        String finalPrompt = buildImagePrompt(basePrompt, artStyle);
+        String characterDescription = plot.getCharacter() != null
+                ? plot.getCharacter().getDescription() : null;
+        String finalPrompt = buildImagePrompt(basePrompt, artStyle, characterDescription);
 
         // 4. 캐릭터 레퍼런스 이미지 URL 조회 (없으면 null)
         String referenceImageUrl = null;
@@ -141,17 +143,27 @@ public class ImageService {
 
     /**
      * 이미지 생성 프롬프트를 구성한다.
-     * 아트스타일이 있으면 "style: {artStyle}, high quality" 형태로 추가한다.
+     * 캐릭터 외형 묘사가 있으면 프롬프트 앞에 추가하고,
+     * 아트스타일이 있으면 "style: {artStyle}, high quality" 형태로 뒤에 추가한다.
      *
-     * @param basePrompt 씬의 firstFramePrompt 또는 lastFramePrompt
-     * @param artStyle   화풍 설정 (null 허용)
+     * @param basePrompt           씬의 firstFramePrompt 또는 lastFramePrompt
+     * @param artStyle             화풍 설정 (null 허용)
+     * @param characterDescription 캐릭터 외형/특징 설명 (null 허용)
      * @return 최종 이미지 프롬프트
      */
-    private String buildImagePrompt(String basePrompt, String artStyle) {
-        if (artStyle != null && !artStyle.isBlank()) {
-            return basePrompt + ", style: " + artStyle + ", high quality";
+    private String buildImagePrompt(String basePrompt, String artStyle, String characterDescription) {
+        StringBuilder sb = new StringBuilder();
+        // 캐릭터 외형 정보가 있으면 프롬프트 앞에 추가하여 이미지에 반영
+        if (characterDescription != null && !characterDescription.isBlank()) {
+            sb.append("Character appearance: ").append(characterDescription).append(". ");
         }
-        return basePrompt + ", high quality";
+        sb.append(basePrompt);
+        if (artStyle != null && !artStyle.isBlank()) {
+            sb.append(", style: ").append(artStyle).append(", high quality");
+        } else {
+            sb.append(", high quality");
+        }
+        return sb.toString();
     }
 
     /**
