@@ -141,7 +141,7 @@ public class FalAiService {
 
         try {
             // 2. FAL.ai 이미지 생성 API 호출
-            String generatedImageUrl = callImageApi(referenceImageUrl, prompt);
+            String generatedImageUrl = callImageApi(referenceImageUrl, prompt, null);
 
             // 3. 성공 → 상태 COMPLETED, imageUrl 저장
             updateImageStatus(imageId, Image.GenerationStatus.COMPLETED, generatedImageUrl);
@@ -228,12 +228,21 @@ public class FalAiService {
      * @return 생성된 이미지 URL
      * @throws RuntimeException FAL.ai API 호출 실패 또는 응답 파싱 실패 시
      */
-    private String callImageApi(String referenceImageUrl, String prompt) {
+    /**
+     * @param referenceImageUrl 캐릭터 레퍼런스 이미지 URL (null 허용)
+     * @param prompt            이미지 생성 프롬프트
+     * @param guidanceScale     프롬프트 충실도 (null이면 FAL.ai 기본값 사용, 높을수록 프롬프트를 더 따름)
+     */
+    private String callImageApi(String referenceImageUrl, String prompt, Double guidanceScale) {
         // 요청 바디 구성 (image_url은 있을 때만 포함)
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("prompt", prompt);
         if (referenceImageUrl != null && !referenceImageUrl.isBlank()) {
             requestBody.put("image_url", referenceImageUrl);
+        }
+        // guidance_scale: 높을수록 프롬프트(스타일 등)를 강하게 반영, 낮을수록 참조 이미지 유지
+        if (guidanceScale != null) {
+            requestBody.put("guidance_scale", guidanceScale);
         }
 
         log.debug("FAL.ai 이미지 생성 요청: url={}, prompt={}", imageApiUrl, prompt);
@@ -548,7 +557,22 @@ public class FalAiService {
      * @throws RuntimeException FAL.ai API 호출 실패 시
      */
     public String generateImageSync(String referenceImageUrl, String prompt) {
-        return callImageApi(referenceImageUrl, prompt);
+        return callImageApi(referenceImageUrl, prompt, null);
+    }
+
+    /**
+     * FAL.ai 이미지를 동기로 생성하고 URL을 즉시 반환한다 (guidance_scale 지정 버전).
+     *
+     * <p>스타일 변환이 필요한 경우 guidanceScale을 높여서 프롬프트 충실도를 올린다.</p>
+     *
+     * @param referenceImageUrl 레퍼런스 이미지 URL (null 허용)
+     * @param prompt            이미지 생성 프롬프트
+     * @param guidanceScale     프롬프트 충실도 (null이면 FAL.ai 기본값 사용)
+     * @return 생성된 이미지 URL
+     * @throws RuntimeException FAL.ai API 호출 실패 시
+     */
+    public String generateImageSync(String referenceImageUrl, String prompt, Double guidanceScale) {
+        return callImageApi(referenceImageUrl, prompt, guidanceScale);
     }
 
     /**

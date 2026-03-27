@@ -72,7 +72,8 @@ public class AssetService {
         log.info("이미지 임시 생성 요청: prompt={}", fullPrompt);
 
         try {
-            String imageUrl = falAiService.generateImageSync(request.getReferenceImageUrl(), fullPrompt);
+            String imageUrl = falAiService.generateImageSync(
+                    request.getReferenceImageUrl(), fullPrompt, getGuidanceScale(request.getStyle()));
             log.info("이미지 임시 생성 완료: imageUrl={}", imageUrl);
             return new GenerateResponse(imageUrl);
         } catch (Exception e) {
@@ -189,7 +190,7 @@ public class AssetService {
         log.info("AI 이미지 생성 시작: prompt={}", prompt);
         String aiImageUrl;
         try {
-            aiImageUrl = falAiService.generateImageSync(referenceImageUrl, prompt);
+            aiImageUrl = falAiService.generateImageSync(referenceImageUrl, prompt, getGuidanceScale(style));
         } catch (Exception e) {
             log.error("AI 이미지 생성 실패: {}", e.getMessage());
             throw new BusinessException("이미지 생성에 실패했습니다: " + e.getMessage(), HttpStatus.BAD_GATEWAY);
@@ -277,14 +278,17 @@ public class AssetService {
 
     /**
      * 프롬프트에 화풍(style)을 붙여서 최종 프롬프트를 구성한다.
+     * 스타일이 REALISTIC이 아닌 경우 스타일 변환을 강하게 지시한다.
      *
      * @param prompt 기본 프롬프트
      * @param style  화풍 (null 허용)
      * @return 최종 프롬프트
      */
     private String buildPrompt(String prompt, String style) {
-        if (style != null && !style.isBlank()) {
-            return prompt + ", " + style + " style, high quality";
+        if (style != null && !style.isBlank() && !isRealisticStyle(style)) {
+            // 스타일 변환을 강하게 지시하여 FAL.ai가 참조 이미지 스타일을 변환하도록 유도
+            return prompt + ", rendered in " + style.toLowerCase() + " style. "
+                    + getStyleDescription(style) + ", high quality";
         }
         return prompt + ", high quality";
     }
@@ -293,6 +297,7 @@ public class AssetService {
      * 통합 자산 생성용 FAL.ai 프롬프트를 구성한다.
      *
      * <p>자산 유형(characters / backgrounds)에 따라 프롬프트 패턴을 다르게 적용한다.
+     * 스타일이 REALISTIC이 아닌 경우, 얼굴은 유지하되 아트 스타일 변환을 강하게 지시한다.
      * ratio, quality 옵션이 있으면 프롬프트 끝에 추가한다.</p>
      *
      * @param name      자산 이름
@@ -305,20 +310,38 @@ public class AssetService {
     private String buildAssetPrompt(String name, String assetType,
                                     String style, String ratio, String quality) {
         StringBuilder sb = new StringBuilder();
+        boolean needsStyleTransform = style != null && !style.isBlank() && !isRealisticStyle(style);
 
         if ("characters".equals(assetType)) {
-            // 캐릭터: 동일 외형·표정 유지를 위한 프롬프트 패턴
+            // 캐릭터: 얼굴 유지 + 스타일 변환 여부에 따라 프롬프트 분기
             sb.append("character portrait of ").append(name)
               .append(", full body, consistent appearance, ")
-              .append("keep the same character face and style as reference image");
+              .append("keep the same character face as reference image");
+
+            if (needsStyleTransform) {
+                // 스타일 변환: 얼굴은 유지하되 아트 스타일을 강하게 변환 지시
+                sb.append(", but transform the art style completely to ")
+                  .append(style.toLowerCase()).append(" style. ")
+                  .append("The entire image must look like ")
+                  .append(getStyleDescription(style));
+            } else {
+                // REALISTIC / 미지정: 참조 이미지의 스타일도 그대로 유지
+                sb.append(" and style as reference image");
+            }
         } else {
             // 배경: 배경 장면 생성 프롬프트 패턴
             sb.append("background scene of ").append(name)
               .append(", detailed environment, cinematic composition");
+
+            if (needsStyleTransform) {
+                // 배경도 스타일 변환 강하게 지시
+                sb.append(", rendered in ").append(style.toLowerCase()).append(" style. ")
+                  .append(getStyleDescription(style));
+            }
         }
 
-        // 화풍 추가
-        if (style != null && !style.isBlank()) {
+        // REALISTIC이 아닌 스타일은 위에서 이미 강하게 반영했으므로 중복 추가하지 않음
+        if (!needsStyleTransform && style != null && !style.isBlank()) {
             sb.append(", ").append(style.toLowerCase()).append(" style");
         }
 
@@ -335,5 +358,51 @@ public class AssetService {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * REALISTIC 스타일인지 판별한다.
+     *
+     * @param style 화풍 문자열
+     * @return REALISTIC이면 true
+     */
+    private boolean isRealisticStyle(String style) {
+        return "REALISTIC".equalsIgnoreCase(style);
+    }
+
+    /**
+     * 스타일별 상세 묘사를 반환한다.
+     * FAL.ai가 스타일 변환을 정확히 수행하도록 구체적인 시각적 특징을 기술한다.
+     *
+     * @param style 화풍 (ANIME, 3D, PAINT, SKETCH 등)
+     * @return 해당 스타일의 상세 영어 묘사
+     */
+    private String getStyleDescription(String style) {
+        if (style == null) return "";
+        return switch (style.toUpperCase()) {
+            case "ANIME" ->
+                    "a Japanese anime illustration with cel shading, large expressive eyes, and vibrant colors";
+            case "3D", "3D ART" ->
+                    "a 3D rendered character with smooth surfaces, volumetric lighting, and CGI aesthetics";
+            case "PAINT" ->
+                    "an oil painting with visible brushstrokes, rich textures, and classical art composition";
+            case "SKETCH" ->
+                    "a pencil sketch with clean linework, cross-hatching shading, and monochrome tones";
+            default -> style.toLowerCase() + " art style";
+        };
+    }
+
+    /**
+     * 스타일에 따른 guidance_scale 값을 반환한다.
+     * REALISTIC이 아닌 스타일은 프롬프트 충실도를 높여 스타일 변환이 실제로 적용되도록 한다.
+     *
+     * @param style 화풍 (null 허용)
+     * @return guidance_scale 값 (REALISTIC/null이면 null → FAL.ai 기본값 사용)
+     */
+    private Double getGuidanceScale(String style) {
+        if (style == null || style.isBlank() || isRealisticStyle(style)) {
+            return null; // FAL.ai 기본값(~3.5) 사용 — 참조 이미지 스타일 유지
+        }
+        return 7.0; // 프롬프트 충실도를 높여 스타일 변환을 강하게 적용
     }
 }
