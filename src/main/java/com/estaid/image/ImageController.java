@@ -48,6 +48,25 @@ public class ImageController {
     }
 
     /**
+     * 씬의 첫/마지막 프레임 이미지 동시 생성 (배치)
+     *
+     * <p>한 번의 요청으로 FIRST + LAST 두 프레임 이미지를 동시에 생성한다.
+     * 두 프레임은 @Async로 병렬 처리되어 순차 호출 대비 ~50% 빠르다.</p>
+     *
+     * @param plotId      플롯 UUID
+     * @param sceneNumber 씬 번호 (1 이상)
+     * @return 201 Created + FIRST/LAST 두 이미지 정보 (status=PENDING)
+     */
+    @PostMapping("/generate/batch")
+    public ResponseEntity<ApiResponse<List<ImageResponse>>> generateBatch(
+            @RequestParam String plotId,
+            @RequestParam Integer sceneNumber) {
+        List<ImageResponse> responses = imageService.generateBatch(plotId, sceneNumber);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("이미지 배치 생성을 요청했습니다.", responses));
+    }
+
+    /**
      * 이미지 단건 조회 (상태 폴링용)
      *
      * <p>프론트엔드에서 주기적으로 호출하여 생성 완료 여부를 확인한다.

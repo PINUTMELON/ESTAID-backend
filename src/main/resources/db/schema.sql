@@ -172,3 +172,18 @@ CREATE INDEX idx_assets_project_created
 -- 유저: username 검색
 CREATE INDEX idx_users_username
     ON public.users (username);
+
+-- [추가] FK 인덱스 — JOIN/WHERE 조건에 사용되는 FK 컬럼
+-- PostgreSQL은 FK에 자동 인덱스를 생성하지 않으므로 명시적 생성 필요
+
+-- 이미지: plot_id FK 인덱스 (플롯별 이미지 조회 최적화)
+CREATE INDEX IF NOT EXISTS idx_images_plot_id
+    ON public.images (plot_id);
+
+-- 영상: plot_id FK 인덱스 (플롯별 영상 조회 최적화)
+CREATE INDEX IF NOT EXISTS idx_videos_plot_id
+    ON public.videos (plot_id);
+
+-- 플롯: character_id FK 인덱스 (캐릭터별 플롯 조회 최적화)
+CREATE INDEX IF NOT EXISTS idx_plots_character_id
+    ON public.plots (character_id);

@@ -25,35 +25,45 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig {
 
     /**
-     * @Async 기본 실행기 빈 (taskExecutor)
+     * @Async 기본 실행기 빈 (taskExecutor) — 이미지 생성 우선
      *
-     * <p>Spring은 'taskExecutor'라는 이름의 빈을 @Async 기본 Executor로 사용한다.</p>
+     * <p>이미지 생성은 30~60초로 비교적 짧으므로 스레드를 넉넉히 배분한다.
+     * 배치 생성(FIRST+LAST 동시) 시 2스레드를 동시 사용하므로 core=6으로 설정.</p>
      */
     @Bean(name = "taskExecutor")
     public Executor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-
-        // 기본 스레드 수 — 평상시 유지
-        executor.setCorePoolSize(4);
-
-        // 최대 스레드 수 — 큐가 가득 찬 경우 확장
-        executor.setMaxPoolSize(8);
-
-        // 대기 큐 용량 — core 스레드가 모두 사용 중일 때 태스크 대기열
+        executor.setCorePoolSize(6);
+        executor.setMaxPoolSize(10);
         executor.setQueueCapacity(50);
-
-        // 스레드 이름 접두사 — 로그에서 비동기 작업 식별 용이
-        executor.setThreadNamePrefix("async-fal-");
-
-        // 유휴 스레드 제거 대기 시간 (초) — core 초과 스레드만 해당
+        executor.setThreadNamePrefix("async-image-");
         executor.setKeepAliveSeconds(60);
-
-        // 애플리케이션 종료 시 진행 중인 태스크 완료 대기
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
-
         executor.initialize();
-        log.info("비동기 스레드 풀 초기화 완료 (core={}, max={}, queue={})",
+        log.info("이미지 스레드 풀 초기화 완료 (core={}, max={}, queue={})",
+                executor.getCorePoolSize(), executor.getMaxPoolSize(), executor.getQueueCapacity());
+        return executor;
+    }
+
+    /**
+     * 영상 생성 전용 실행기 빈 (videoExecutor)
+     *
+     * <p>영상 생성은 1~10분으로 오래 걸리며 폴링으로 스레드를 점유하므로,
+     * 이미지 생성과 분리하여 영상이 이미지 생성을 블로킹하지 않도록 한다.</p>
+     */
+    @Bean(name = "videoExecutor")
+    public Executor videoExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(3);
+        executor.setMaxPoolSize(5);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("async-video-");
+        executor.setKeepAliveSeconds(60);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+        log.info("영상 스레드 풀 초기화 완료 (core={}, max={}, queue={})",
                 executor.getCorePoolSize(), executor.getMaxPoolSize(), executor.getQueueCapacity());
         return executor;
     }

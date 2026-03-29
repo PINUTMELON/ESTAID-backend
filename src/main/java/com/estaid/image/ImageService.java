@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -103,6 +104,69 @@ public class ImageService {
         falAiService.processImageGeneration(saved.getImageId(), referenceImageUrl, finalPrompt);
 
         return ImageResponse.from(saved);
+    }
+
+    /**
+     * 씬의 첫 프레임 + 마지막 프레임 이미지를 동시에 생성 요청한다.
+     *
+     * <p>두 프레임은 독립적이므로 @Async로 병렬 처리되어
+     * 순차 호출 대비 생성 시간이 ~50% 단축된다.</p>
+     *
+     * @param plotId      이미지를 생성할 플롯 UUID
+     * @param sceneNumber 씬 번호 (1부터 시작)
+     * @return FIRST/LAST 두 이미지의 응답 DTO 목록 (status=PENDING)
+     * @throws BusinessException 플롯·씬 미존재(404) 시
+     */
+    @Transactional
+    public List<ImageResponse> generateBatch(String plotId, int sceneNumber) {
+        // 1. 플롯 조회
+        Plot plot = getPlotOrThrow(plotId);
+
+        // 2. 씬 목록 역직렬화 → 해당 씬 추출
+        List<SceneDto> scenes = deserializeScenes(plot.getScenesJson());
+        SceneDto scene = scenes.stream()
+                .filter(s -> s.getSceneNumber() == sceneNumber)
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(
+                        "씬 번호를 찾을 수 없습니다. sceneNumber=" + sceneNumber,
+                        HttpStatus.NOT_FOUND));
+
+        // 3. 공통 정보 추출 (한 번만 조회)
+        String artStyle = plot.getArtStyle();
+        String characterDescription = plot.getCharacter() != null
+                ? plot.getCharacter().getDescription() : null;
+        String referenceImageUrl = plot.getCharacter() != null
+                ? plot.getCharacter().getReferenceImageUrl() : null;
+
+        // 4. FIRST + LAST 두 프레임의 프롬프트 구성
+        String firstPrompt = buildImagePrompt(scene.getFirstFramePrompt(), artStyle, characterDescription);
+        String lastPrompt = buildImagePrompt(scene.getLastFramePrompt(), artStyle, characterDescription);
+
+        // 5. 두 Image 엔티티를 한 번에 저장 (status=PENDING)
+        List<ImageResponse> responses = new ArrayList<>();
+        for (var entry : List.of(
+                new Object[]{Image.FrameType.FIRST, firstPrompt},
+                new Object[]{Image.FrameType.LAST, lastPrompt})) {
+            Image.FrameType frameType = (Image.FrameType) entry[0];
+            String prompt = (String) entry[1];
+
+            Image image = Image.builder()
+                    .plot(plot)
+                    .sceneNumber(sceneNumber)
+                    .frameType(frameType)
+                    .prompt(prompt)
+                    .status(Image.GenerationStatus.PENDING)
+                    .build();
+            Image saved = imageRepository.save(image);
+            log.info("이미지 엔티티 저장 (배치): imageId={}, sceneNumber={}, frameType={}",
+                    saved.getImageId(), sceneNumber, frameType);
+
+            // 6. 비동기 FAL.ai 호출 — 두 프레임이 @Async로 동시 실행됨
+            falAiService.processImageGeneration(saved.getImageId(), referenceImageUrl, prompt);
+            responses.add(ImageResponse.from(saved));
+        }
+
+        return responses;
     }
 
     /**

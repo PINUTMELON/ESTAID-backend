@@ -1,5 +1,6 @@
 package com.estaid.plot;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -15,10 +16,12 @@ public interface PlotRepository extends JpaRepository<Plot, String> {
 
     /**
      * 특정 프로젝트에 속한 플롯 목록을 조회한다.
+     * 캐릭터 정보를 함께 fetch join하여 N+1 문제를 방지한다.
      *
      * @param projectId 프로젝트 고유 식별자
-     * @return 해당 프로젝트의 플롯 목록
+     * @return 해당 프로젝트의 플롯 목록 (캐릭터 포함)
      */
+    @EntityGraph(attributePaths = {"character"})
     List<Plot> findByProject_ProjectId(String projectId);
 
     /**

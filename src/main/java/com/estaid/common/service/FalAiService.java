@@ -177,7 +177,7 @@ public class FalAiService {
      * @param lastFrameUrl  씬 마지막 프레임 이미지 URL
      * @param prompt        영상 생성 프롬프트 (Claude가 생성하거나 사용자가 수정한 값)
      */
-    @Async
+    @Async("videoExecutor")
     public void processVideoGeneration(String videoId, String firstFrameUrl,
                                        String lastFrameUrl, String prompt) {
         log.info("영상 비동기 생성 시작: videoId={}", videoId);
