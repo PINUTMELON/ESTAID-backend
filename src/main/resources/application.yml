@@ -34,6 +34,11 @@ spring:
 
 server:
   port: 8080
+  # 응답 Gzip 압축 — scenesJson 등 큰 JSON 응답의 네트워크 전송량 ~60% 감소
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,text/html,text/plain
 
 # CORS 허용 Origin
 app:

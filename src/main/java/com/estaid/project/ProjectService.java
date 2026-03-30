@@ -76,8 +76,10 @@ public class ProjectService {
         projectRating.setRating(request.rating());
         projectRatingRepository.save(projectRating);
 
-        int nextRatingSum = projectRatingRepository.sumRatingsByProjectId(projectId);
-        int nextRatingCount = Math.toIntExact(projectRatingRepository.countByProject_ProjectId(projectId));
+        // 평점 합계 + 개수를 단일 쿼리로 조회 (2번 → 1번 최적화)
+        Object[] sumAndCount = projectRatingRepository.sumAndCountByProjectId(projectId);
+        int nextRatingSum = ((Number) sumAndCount[0]).intValue();
+        int nextRatingCount = ((Number) sumAndCount[1]).intValue();
         BigDecimal nextAverageRating = BigDecimal.valueOf(nextRatingSum)
                 .divide(BigDecimal.valueOf(nextRatingCount), 2, RoundingMode.HALF_UP);
 

@@ -110,27 +110,8 @@ public class ClaudeService {
                 "messages", List.of(Map.of("role", "user", "content", userPrompt))
         );
 
-        // 3. Claude API 동기 호출
-        String responseJson;
-        try {
-            responseJson = claudeWebClient.post()
-                    .uri("/v1/messages")
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .onStatus(status -> status.isError(),
-                            response -> response.bodyToMono(String.class)
-                                    .flatMap(body -> Mono.error(
-                                            new BusinessException("Claude API 오류: " + body, HttpStatus.BAD_GATEWAY))))
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
-                    .block();
-        } catch (WebClientResponseException e) {
-            log.error("Claude API HTTP 오류: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
-        } catch (Exception e) {
-            log.error("Claude API 호출 실패: {}", e.getMessage());
-            throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
-        }
+        // 3. Claude API 동기 호출 (overloaded 시 자동 재시도)
+        String responseJson = callClaudeApi(requestBody);
 
         // 4. 응답 파싱 → List<SceneDto>
         List<SceneDto> scenes = parseScenes(responseJson);
@@ -167,27 +148,8 @@ public class ClaudeService {
                 "messages", List.of(Map.of("role", "user", "content", userPrompt))
         );
 
-        // 3. Claude API 동기 호출
-        String responseJson;
-        try {
-            responseJson = claudeWebClient.post()
-                    .uri("/v1/messages")
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .onStatus(status -> status.isError(),
-                            response -> response.bodyToMono(String.class)
-                                    .flatMap(body -> Mono.error(
-                                            new BusinessException("Claude API 오류: " + body, HttpStatus.BAD_GATEWAY))))
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
-                    .block();
-        } catch (WebClientResponseException e) {
-            log.error("Claude API HTTP 오류: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
-        } catch (Exception e) {
-            log.error("Claude API 호출 실패: {}", e.getMessage());
-            throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
-        }
+        // 3. Claude API 동기 호출 (overloaded 시 자동 재시도)
+        String responseJson = callClaudeApi(requestBody);
 
         // 4. content[0].text 추출
         try {
@@ -199,6 +161,70 @@ public class ClaudeService {
             log.error("Claude 영상 프롬프트 응답 파싱 실패: {}", e.getMessage());
             throw new BusinessException("Claude 영상 프롬프트 응답 파싱에 실패했습니다.");
         }
+    }
+
+    // ─────────────────────────────────────────
+    // Claude API 공통 호출 (재시도 포함)
+    // ─────────────────────────────────────────
+
+    /** Claude API 최대 재시도 횟수 (overloaded_error 대응) */
+    private static final int MAX_RETRIES = 2;
+
+    /** 재시도 대기 시간 (밀리초) */
+    private static final long RETRY_DELAY_MS = 3_000;
+
+    /**
+     * Claude API를 동기 호출한다. overloaded_error 발생 시 자동 재시도한다.
+     *
+     * @param requestBody Claude API 요청 바디
+     * @return Claude API 응답 JSON 문자열
+     * @throws BusinessException 최대 재시도 후에도 실패 시
+     */
+    private String callClaudeApi(Map<String, Object> requestBody) {
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                String responseJson = claudeWebClient.post()
+                        .uri("/v1/messages")
+                        .bodyValue(requestBody)
+                        .retrieve()
+                        .onStatus(status -> status.isError(),
+                                response -> response.bodyToMono(String.class)
+                                        .flatMap(body -> {
+                                            // overloaded_error는 재시도 가능하므로 RuntimeException으로 전파
+                                            if (body != null && body.contains("overloaded_error")) {
+                                                return Mono.error(new RuntimeException("OVERLOADED:" + body));
+                                            }
+                                            return Mono.error(
+                                                    new BusinessException("Claude API 오류: " + body, HttpStatus.BAD_GATEWAY));
+                                        }))
+                        .bodyToMono(String.class)
+                        .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                        .block();
+                return responseJson;
+            } catch (BusinessException e) {
+                // 비즈니스 예외(non-overloaded 오류)는 즉시 전파
+                throw e;
+            } catch (Exception e) {
+                lastException = e;
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                boolean isOverloaded = msg.contains("OVERLOADED") || msg.contains("overloaded");
+
+                if (isOverloaded && attempt < MAX_RETRIES) {
+                    log.warn("Claude API overloaded, {}ms 후 재시도 (attempt={}/{})",
+                            RETRY_DELAY_MS, attempt + 1, MAX_RETRIES);
+                    try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    continue;
+                }
+
+                log.error("Claude API 호출 최종 실패 (attempt={}): {}", attempt + 1, e.getMessage());
+                break;
+            }
+        }
+        throw new BusinessException("Claude API 호출에 실패했습니다.", HttpStatus.BAD_GATEWAY);
     }
 
     // ─────────────────────────────────────────
